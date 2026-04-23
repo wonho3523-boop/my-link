@@ -32,7 +32,9 @@ export default function PublicProfile({
       </div>
 
       <div className="flex flex-col gap-3 flex-1">
-        {links.map((link) => {
+        {links
+          .filter((link) => link.isActive !== false)
+          .map((link) => {
           // lucide-react에서 아이콘을 매칭합니다. 매칭 실패시 Navigation 아이콘을 기본값으로 사용
           const Icon = (LucideIcons as any)[link.icon] || Navigation;
           

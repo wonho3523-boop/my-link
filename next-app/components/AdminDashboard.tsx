@@ -10,8 +10,17 @@ import { CSS } from '@dnd-kit/utilities';
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { GripVertical, Trash2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
-function SortableItem({ id, link }: { id: string; link: LinkType }) {
+interface SortableItemProps {
+  id: string;
+  link: LinkType;
+  onUpdate: (id: string, field: keyof LinkType, value: any) => void;
+  onDelete: (id: string) => void;
+  onToggle: (id: string, checked: boolean) => void;
+}
+
+function SortableItem({ id, link, onUpdate, onDelete, onToggle }: SortableItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: id });
 
   const style = {
@@ -24,12 +33,31 @@ function SortableItem({ id, link }: { id: string; link: LinkType }) {
       <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing p-2 text-slate-400 hover:text-slate-600 focus:outline-none rounded-lg hover:bg-slate-50">
         <GripVertical className="w-5 h-5" />
       </div>
-      <div className="flex-1">
-        <p className="font-semibold text-sm">{link.title}</p>
-        <p className="text-xs text-slate-500 truncate mt-0.5">{link.url}</p>
+      <div className="flex-1 space-y-2">
+        <Input 
+          value={link.title} 
+          onChange={(e) => onUpdate(id, "title", e.target.value)}
+          placeholder="링크 제목"
+          className="h-8 font-semibold text-sm border-transparent hover:border-input focus:border-input px-2"
+        />
+        <Input 
+          value={link.url} 
+          onChange={(e) => onUpdate(id, "url", e.target.value)}
+          placeholder="https://"
+          className="h-8 text-xs text-slate-500 border-transparent hover:border-input focus:border-input px-2"
+        />
       </div>
-      <Switch defaultChecked={true} className="data-[state=checked]:bg-emerald-500" />
-      <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-600 hover:bg-red-50">
+      <Switch 
+        checked={link.isActive !== false} 
+        onCheckedChange={(checked) => onToggle(id, checked)}
+        className="data-[state=checked]:bg-emerald-500" 
+      />
+      <Button 
+        variant="ghost" 
+        size="icon" 
+        onClick={() => onDelete(id)}
+        className="text-slate-400 hover:text-red-600 hover:bg-red-50"
+      >
         <Trash2 className="w-4 h-4" />
       </Button>
     </div>
@@ -48,13 +76,36 @@ export default function AdminDashboard() {
 
   function handleDragEnd(event: any) {
     const { active, over } = event;
-    if (active.id !== over.id) {
+    if (active && over && active.id !== over.id) {
       setLinks((items) => {
         const oldIndex = items.findIndex(i => i.id === active.id);
         const newIndex = items.findIndex(i => i.id === over.id);
         return arrayMove(items, oldIndex, newIndex);
       });
     }
+  }
+
+  function handleAddLink() {
+    const newLink: LinkType = {
+      id: `link-${Date.now()}`,
+      title: "새로운 링크",
+      url: "https://",
+      icon: "Navigation",
+      isActive: true,
+    };
+    setLinks([newLink, ...links]);
+  }
+
+  function handleUpdateLink(id: string, field: keyof LinkType, value: any) {
+    setLinks(links.map(link => link.id === id ? { ...link, [field]: value } : link));
+  }
+
+  function handleDeleteLink(id: string) {
+    setLinks(links.filter(link => link.id !== id));
+  }
+
+  function handleToggleLink(id: string, checked: boolean) {
+    setLinks(links.map(link => link.id === id ? { ...link, isActive: checked } : link));
   }
 
   return (
@@ -64,7 +115,10 @@ export default function AdminDashboard() {
         <div className="max-w-2xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
             <h1 className="text-3xl font-black tracking-tight">링크 설정 관리</h1>
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-full px-6 shadow-sm shadow-blue-200">
+            <Button 
+              onClick={handleAddLink}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-full px-6 shadow-sm shadow-blue-200"
+            >
               + 새로운 링크 추가
             </Button>
           </div>
@@ -74,7 +128,14 @@ export default function AdminDashboard() {
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={links.map(l => l.id)} strategy={verticalListSortingStrategy}>
                 {links.map(link => (
-                  <SortableItem key={link.id} id={link.id} link={link} />
+                  <SortableItem 
+                    key={link.id} 
+                    id={link.id} 
+                    link={link} 
+                    onUpdate={handleUpdateLink}
+                    onDelete={handleDeleteLink}
+                    onToggle={handleToggleLink}
+                  />
                 ))}
               </SortableContext>
             </DndContext>
