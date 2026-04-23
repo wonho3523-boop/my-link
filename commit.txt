@@ -1,0 +1,6 @@
+feat: 링크 순서 변경을 위한 dnd-kit 및 Firebase 초기 설정 추가
+
+- 사용자 요청에 따라 이전의 화려한 네오 브루탈리즘 디자인을 포함한 my-app 디렉터리를 .backup 디렉터리로 이동시켜 백업함
+- 드래그 앤 드롭을 통한 링크 순서 변경 기능 활성화를 위해 @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities 설치 및 package.json 업데이트
+- Firebase Auth, Firestore DB 연동을 위한 lib/firebase/config.ts 환경 초기화 세팅 뼈대 추가
+- 의존성 설치 이후 빌드 가능함을 확인함
