@@ -91,6 +91,9 @@ export default function AdminDashboard() {
   const [newLinkTitle, setNewLinkTitle] = useState("");
   const [newLinkUrl, setNewLinkUrl] = useState("https://");
   const [newLinkIcon, setNewLinkIcon] = useState("Link");
+  
+  // 입력 검증 세분화 에러 상태
+  const [titleError, setTitleError] = useState("");
   const [urlError, setUrlError] = useState("");
 
   const sensors = useSensors(
@@ -111,24 +114,60 @@ export default function AdminDashboard() {
     }
   }
 
-  // URL 유효성 검증 함수
+  // 제목 글자 수 및 필수 입력 유효성 검증 함수
+  const validateTitle = (title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      setTitleError("링크 제목을 입력해 주세요.");
+      return false;
+    }
+    if (trimmed.length < 2) {
+      setTitleError("제목은 최소 2글자 이상 입력해야 합니다.");
+      return false;
+    }
+    if (trimmed.length > 20) {
+      setTitleError("제목은 최대 20자까지만 입력 가능합니다.");
+      return false;
+    }
+    setTitleError("");
+    return true;
+  };
+
+  const handleTitleChange = (val: string) => {
+    setNewLinkTitle(val);
+    validateTitle(val);
+  };
+
+  // URL 호스트, 정밀 도메인 패턴, 중복 유효성 검증 함수
   const validateUrl = (url: string) => {
-    if (!url) {
+    const trimmed = url.trim();
+    if (!trimmed || trimmed === "https://" || trimmed === "http://") {
       setUrlError("URL을 입력해 주세요.");
       return false;
     }
-    if (!/^https?:\/\//i.test(url)) {
+    if (!/^https?:\/\//i.test(trimmed)) {
       setUrlError("URL은 http:// 또는 https://로 시작해야 합니다.");
       return false;
     }
-    try {
-      new URL(url);
-      setUrlError("");
-      return true;
-    } catch (_) {
-      setUrlError("올바른 URL 형식이 아닙니다.");
+    
+    // 정교한 도메인 검증 정규표현식
+    const urlPattern = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/i;
+    if (!urlPattern.test(trimmed)) {
+      setUrlError("올바른 URL 도메인 형식이 아닙니다.");
       return false;
     }
+
+    // 중복 URL 체크 (기존 등록된 URL 목록 비교)
+    const isDuplicate = links.some(
+      (link) => link.url.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (isDuplicate) {
+      setUrlError("이미 등록된 URL 주소입니다. 다른 주소를 입력해 주세요.");
+      return false;
+    }
+
+    setUrlError("");
+    return true;
   };
 
   const handleUrlChange = (val: string) => {
@@ -145,6 +184,7 @@ export default function AdminDashboard() {
     setNewLinkTitle("");
     setNewLinkUrl("https://");
     setNewLinkIcon("Link");
+    setTitleError("");
     setUrlError("");
     setIsAddDialogOpen(true);
   };
@@ -152,8 +192,11 @@ export default function AdminDashboard() {
   // 모달 폼 제출 핸들러 (로컬 상태 반영)
   const handleCreateLink = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLinkTitle.trim()) return;
-    if (!validateUrl(newLinkUrl)) return;
+    
+    const isTitleValid = validateTitle(newLinkTitle);
+    const isUrlValid = validateUrl(newLinkUrl);
+    
+    if (!isTitleValid || !isUrlValid) return;
 
     const newLink: LinkType = {
       id: `link-${Date.now()}`,
@@ -179,7 +222,15 @@ export default function AdminDashboard() {
     setLinks(links.map(link => link.id === id ? { ...link, isActive: checked } : link));
   }
 
-  const isFormValid = newLinkTitle.trim().length >= 1 && !urlError && newLinkUrl.trim() !== "" && newLinkUrl.trim() !== "https://";
+  // 폼 제출 버튼 활성화 상태 조건 정의
+  const isFormValid =
+    newLinkTitle.trim().length >= 2 &&
+    newLinkTitle.trim().length <= 20 &&
+    !titleError &&
+    !urlError &&
+    newLinkUrl.trim() !== "" &&
+    newLinkUrl.trim() !== "https://" &&
+    newLinkUrl.trim() !== "http://";
 
   return (
     <div className="flex flex-col lg:flex-row h-screen bg-slate-100 overflow-hidden font-sans relative">
@@ -256,6 +307,7 @@ export default function AdminDashboard() {
                 <p className="text-xs text-slate-500 mt-1">프로필 페이지에 노출될 링크 정보를 설정합니다.</p>
               </div>
               <Button 
+                type="button"
                 variant="ghost" 
                 size="icon" 
                 onClick={() => setIsAddDialogOpen(false)}
@@ -269,18 +321,32 @@ export default function AdminDashboard() {
             <form onSubmit={handleCreateLink} className="flex-1 overflow-y-auto space-y-6 pr-1 scrollbar-thin">
               {/* 제목 입력 */}
               <div className="space-y-2">
-                <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                  <LucideIcons.Type className="w-4 h-4 text-blue-500" />
-                  링크 제목
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                    <LucideIcons.Type className="w-4 h-4 text-blue-500" />
+                    링크 제목
+                  </label>
+                  <span className={`text-xs font-semibold ${newLinkTitle.length > 20 ? 'text-red-500' : 'text-slate-400'}`}>
+                    {newLinkTitle.length}/20자
+                  </span>
+                </div>
                 <Input 
                   value={newLinkTitle} 
-                  onChange={(e) => setNewLinkTitle(e.target.value)}
+                  onChange={(e) => handleTitleChange(e.target.value)}
                   placeholder="예: 공식 인스타그램, 개인 블로그 등"
-                  className="rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-100 font-semibold h-11"
+                  className={`rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-100 font-semibold h-11 ${
+                    titleError ? 'border-red-500 focus:border-red-500 focus:ring-red-100' : ''
+                  }`}
                   required
+                  maxLength={30}
                   autoFocus
                 />
+                {titleError && (
+                  <p className="text-xs text-red-500 flex items-center gap-1 animate-in fade-in duration-150">
+                    <LucideIcons.AlertCircle className="w-3.5 h-3.5" />
+                    {titleError}
+                  </p>
+                )}
               </div>
 
               {/* URL 입력 */}
@@ -293,11 +359,13 @@ export default function AdminDashboard() {
                   value={newLinkUrl} 
                   onChange={(e) => handleUrlChange(e.target.value)}
                   placeholder="https://example.com"
-                  className={`rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-100 h-11 ${urlError ? 'border-red-500 focus:border-red-500 focus:ring-red-100' : ''}`}
+                  className={`rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-100 h-11 ${
+                    urlError ? 'border-red-500 focus:border-red-500 focus:ring-red-100' : ''
+                  }`}
                   required
                 />
                 {urlError && (
-                  <p className="text-xs text-red-500 flex items-center gap-1">
+                  <p className="text-xs text-red-500 flex items-center gap-1 animate-in fade-in duration-150">
                     <LucideIcons.AlertCircle className="w-3.5 h-3.5" />
                     {urlError}
                   </p>
