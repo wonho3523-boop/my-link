@@ -1,7 +1,0 @@
-feat: 관리자 대시보드 인터랙션(CRUD) 구현 및 Live Preview 연동
-
-- 링크 생성, 수정, 삭제, 숨김(Toggle) 상태를 관리할 수 있도록 AdminDashboard 내부 상태(State) 로직 구현
-- data/links.ts의 Link 타입에 isActive 속성 추가
-- PublicProfile에서 isActive가 false인 링크는 렌더링하지 않도록 필터링 로직 반영
-- 드래그 앤 드롭 정렬(dnd-kit) 시 업데이트된 배열 상태가 올바르게 저장되도록 보완
-- 브라우저 서브에이전트 시연 및 빌드 검증 성공
