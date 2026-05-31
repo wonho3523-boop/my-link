@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link as LinkType } from "@/data/links";
 import { linkData } from "@/data/links";
 import PublicProfile from "./PublicProfile";
@@ -12,6 +12,18 @@ import { Button } from "@/components/ui/button";
 import { GripVertical, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import * as LucideIcons from "lucide-react";
+import { db } from "@/lib/firebase";
+import { 
+  collection, 
+  getDocs, 
+  setDoc, 
+  doc, 
+  deleteDoc, 
+  updateDoc, 
+  writeBatch, 
+  query, 
+  orderBy 
+} from "firebase/firestore";
 
 interface SortableItemProps {
   id: string;
@@ -84,7 +96,8 @@ function SortableItem({ id, link, onUpdate, onDelete, onToggle }: SortableItemPr
 }
 
 export default function AdminDashboard() {
-  const [links, setLinks] = useState<LinkType[]>(linkData);
+  const [links, setLinks] = useState<LinkType[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   
   // 다이얼로그 관련 상태 선언
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -103,14 +116,69 @@ export default function AdminDashboard() {
     })
   );
 
-  function handleDragEnd(event: any) {
+  // Firestore 데이터 가져오기 및 초기 데이터 마이그레이션
+  useEffect(() => {
+    async function fetchLinks() {
+      setIsLoading(true);
+      try {
+        const linksRef = collection(db, "users", "anonymous", "links");
+        const q = query(linksRef, orderBy("order", "asc"));
+        const querySnapshot = await getDocs(q);
+        
+        if (querySnapshot.empty) {
+          // Firestore에 데이터가 전혀 없다면 초기 데이터 시딩(마이그레이션) 진행
+          const batch = writeBatch(db);
+          const initialLinks = linkData.map((link, index) => ({
+            ...link,
+            order: index,
+          }));
+          
+          initialLinks.forEach((link) => {
+            const docRef = doc(db, "users", "anonymous", "links", link.id);
+            batch.set(docRef, link);
+          });
+          
+          await batch.commit();
+          setLinks(initialLinks);
+        } else {
+          const fetchedLinks: LinkType[] = [];
+          querySnapshot.forEach((doc) => {
+            fetchedLinks.push(doc.data() as LinkType);
+          });
+          setLinks(fetchedLinks);
+        }
+      } catch (error) {
+        console.error("Firestore에서 링크 데이터를 가져오는 중 오류 발생:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    fetchLinks();
+  }, []);
+
+  async function handleDragEnd(event: any) {
     const { active, over } = event;
     if (active && over && active.id !== over.id) {
+      let newLinks: LinkType[] = [];
       setLinks((items) => {
         const oldIndex = items.findIndex(i => i.id === active.id);
         const newIndex = items.findIndex(i => i.id === over.id);
-        return arrayMove(items, oldIndex, newIndex);
+        newLinks = arrayMove(items, oldIndex, newIndex);
+        return newLinks;
       });
+
+      // Firestore 배치 작업으로 순서 일괄 업데이트
+      try {
+        const batch = writeBatch(db);
+        newLinks.forEach((link, idx) => {
+          const docRef = doc(db, "users", "anonymous", "links", link.id);
+          batch.update(docRef, { order: idx });
+        });
+        await batch.commit();
+      } catch (err) {
+        console.error("Firestore에 링크 순서를 저장하는 중 오류 발생:", err);
+      }
     }
   }
 
@@ -189,8 +257,8 @@ export default function AdminDashboard() {
     setIsAddDialogOpen(true);
   };
 
-  // 모달 폼 제출 핸들러 (로컬 상태 반영)
-  const handleCreateLink = (e: React.FormEvent) => {
+  // 모달 폼 제출 핸들러 (Firestore 저장 및 로컬 상태 반영)
+  const handleCreateLink = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const isTitleValid = validateTitle(newLinkTitle);
@@ -198,28 +266,76 @@ export default function AdminDashboard() {
     
     if (!isTitleValid || !isUrlValid) return;
 
-    const newLink: LinkType = {
-      id: `link-${Date.now()}`,
+    const newId = `link-${Date.now()}`;
+    const newLinkData: LinkType & { order: number } = {
+      id: newId,
       title: newLinkTitle.trim(),
       url: newLinkUrl.trim(),
       icon: newLinkIcon,
       isActive: true,
+      order: 0, // 새 링크는 가장 위에 추가
     };
 
-    setLinks([newLink, ...links]);
-    setIsAddDialogOpen(false);
+    try {
+      const batch = writeBatch(db);
+      
+      // 새 링크 저장
+      batch.set(doc(db, "users", "anonymous", "links", newId), newLinkData);
+      
+      // 기존 링크들의 order를 1씩 증가시켜 순서 유지
+      links.forEach((link, idx) => {
+        const docRef = doc(db, "users", "anonymous", "links", link.id);
+        batch.update(docRef, { order: idx + 1 });
+      });
+      
+      await batch.commit();
+
+      setLinks([newLinkData, ...links.map((l, idx) => ({ ...l, order: idx + 1 }))]);
+      setIsAddDialogOpen(false);
+    } catch (err) {
+      console.error("Firestore에 새 링크를 추가하는 중 오류 발생:", err);
+    }
   };
 
-  function handleUpdateLink(id: string, field: keyof LinkType, value: any) {
+  async function handleUpdateLink(id: string, field: keyof LinkType, value: any) {
     setLinks(links.map(link => link.id === id ? { ...link, [field]: value } : link));
+    try {
+      const docRef = doc(db, "users", "anonymous", "links", id);
+      await updateDoc(docRef, { [field]: value });
+    } catch (err) {
+      console.error("Firestore 링크 정보를 수정하는 중 오류 발생:", err);
+    }
   }
 
-  function handleDeleteLink(id: string) {
-    setLinks(links.filter(link => link.id !== id));
+  async function handleDeleteLink(id: string) {
+    const updatedLinks = links.filter(link => link.id !== id);
+    setLinks(updatedLinks);
+
+    try {
+      await deleteDoc(doc(db, "users", "anonymous", "links", id));
+      
+      // 삭제 후 남아있는 링크들의 order 재조정
+      const batch = writeBatch(db);
+      updatedLinks.forEach((link, idx) => {
+        const docRef = doc(db, "users", "anonymous", "links", link.id);
+        batch.update(docRef, { order: idx });
+      });
+      await batch.commit();
+
+      setLinks(updatedLinks.map((l, idx) => ({ ...l, order: idx })));
+    } catch (err) {
+      console.error("Firestore 링크를 삭제하는 중 오류 발생:", err);
+    }
   }
 
-  function handleToggleLink(id: string, checked: boolean) {
+  async function handleToggleLink(id: string, checked: boolean) {
     setLinks(links.map(link => link.id === id ? { ...link, isActive: checked } : link));
+    try {
+      const docRef = doc(db, "users", "anonymous", "links", id);
+      await updateDoc(docRef, { isActive: checked });
+    } catch (err) {
+      console.error("Firestore 링크 활성화 토글 중 오류 발생:", err);
+    }
   }
 
   // 폼 제출 버튼 활성화 상태 조건 정의
@@ -249,7 +365,22 @@ export default function AdminDashboard() {
           
           <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mb-8">
             <p className="text-sm font-semibold text-blue-800 mb-4">현재 화면에 표시할 링크를 편집하고 순서를 변경하세요.</p>
-            {links.length === 0 ? (
+            {isLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((n) => (
+                  <div key={n} className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border mb-3 animate-pulse">
+                    <div className="w-5 h-5 bg-slate-200 rounded shrink-0 animate-pulse" />
+                    <div className="w-10 h-10 bg-slate-100 rounded-lg border border-slate-50 shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 bg-slate-200 rounded w-1/3" />
+                      <div className="h-3 bg-slate-200 rounded w-1/2" />
+                    </div>
+                    <div className="w-10 h-6 bg-slate-200 rounded-full shrink-0" />
+                    <div className="w-8 h-8 bg-slate-200 rounded shrink-0" />
+                  </div>
+                ))}
+              </div>
+            ) : links.length === 0 ? (
               <div className="bg-white/60 border border-dashed border-slate-200 rounded-xl p-12 text-center text-slate-400">
                 <LucideIcons.Link className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm font-medium">등록된 링크가 없습니다.</p>
