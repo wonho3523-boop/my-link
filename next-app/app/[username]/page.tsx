@@ -11,7 +11,7 @@ export default async function UserPublicPage({ params }: { params: Promise<{ use
   if (username === "anonymous") {
     try {
       const linksRef = collection(db, "users", "anonymous", "links");
-      const q = query(linksRef, orderBy("order", "asc"));
+      const q = query(linksRef, orderBy("createdAt", "desc"));
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {

@@ -22,7 +22,8 @@ import {
   updateDoc, 
   writeBatch, 
   query, 
-  orderBy 
+  orderBy,
+  onSnapshot
 } from "firebase/firestore";
 
 interface SortableItemProps {
@@ -116,21 +117,24 @@ export default function AdminDashboard() {
     })
   );
 
-  // Firestore 데이터 가져오기 및 초기 데이터 마이그레이션
+  // Firestore 데이터 가져오기 및 초기 데이터 마이그레이션 (실시간 리스너 연동)
   useEffect(() => {
-    async function fetchLinks() {
-      setIsLoading(true);
+    const linksRef = collection(db, "users", "anonymous", "links");
+    const q = query(linksRef, orderBy("createdAt", "desc"));
+    
+    setIsLoading(true);
+
+    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
       try {
-        const linksRef = collection(db, "users", "anonymous", "links");
-        const q = query(linksRef, orderBy("order", "asc"));
-        const querySnapshot = await getDocs(q);
-        
         if (querySnapshot.empty) {
           // Firestore에 데이터가 전혀 없다면 초기 데이터 시딩(마이그레이션) 진행
           const batch = writeBatch(db);
+          const now = Date.now();
+          // 역순 정렬("desc")이므로, order 순서대로 표시되려면 
+          // index가 낮을수록 더 최신(createdAt이 더 큼)이어야 합니다.
           const initialLinks = linkData.map((link, index) => ({
             ...link,
-            order: index,
+            createdAt: new Date(now - index * 1000).toISOString(),
           }));
           
           initialLinks.forEach((link) => {
@@ -139,7 +143,6 @@ export default function AdminDashboard() {
           });
           
           await batch.commit();
-          setLinks(initialLinks);
         } else {
           const fetchedLinks: LinkType[] = [];
           querySnapshot.forEach((doc) => {
@@ -148,13 +151,16 @@ export default function AdminDashboard() {
           setLinks(fetchedLinks);
         }
       } catch (error) {
-        console.error("Firestore에서 링크 데이터를 가져오는 중 오류 발생:", error);
+        console.error("Firestore에서 실시간 링크 데이터를 동기화하는 중 오류 발생:", error);
       } finally {
         setIsLoading(false);
       }
-    }
+    }, (error) => {
+      console.error("Firestore onSnapshot 에러:", error);
+      setIsLoading(false);
+    });
     
-    fetchLinks();
+    return () => unsubscribe();
   }, []);
 
   async function handleDragEnd(event: any) {
@@ -168,12 +174,15 @@ export default function AdminDashboard() {
         return newLinks;
       });
 
-      // Firestore 배치 작업으로 순서 일괄 업데이트
+      // Firestore 배치 작업으로 순서 일괄 업데이트 (createdAt 시간차 재분배)
       try {
         const batch = writeBatch(db);
+        const now = Date.now();
         newLinks.forEach((link, idx) => {
           const docRef = doc(db, "users", "anonymous", "links", link.id);
-          batch.update(docRef, { order: idx });
+          // 역순 정렬("desc")이므로, index가 0일 때 가장 최신(createdAt이 가장 큼)이어야 합니다.
+          const calculatedCreatedAt = new Date(now - idx * 1000).toISOString();
+          batch.update(docRef, { createdAt: calculatedCreatedAt });
         });
         await batch.commit();
       } catch (err) {
@@ -267,30 +276,18 @@ export default function AdminDashboard() {
     if (!isTitleValid || !isUrlValid) return;
 
     const newId = `link-${Date.now()}`;
-    const newLinkData: LinkType & { order: number } = {
+    const newLinkData: LinkType = {
       id: newId,
       title: newLinkTitle.trim(),
       url: newLinkUrl.trim(),
       icon: newLinkIcon,
       isActive: true,
-      order: 0, // 새 링크는 가장 위에 추가
+      createdAt: new Date().toISOString(), // 새 링크는 가장 최근 생성 시각 부여
     };
 
     try {
-      const batch = writeBatch(db);
-      
-      // 새 링크 저장
-      batch.set(doc(db, "users", "anonymous", "links", newId), newLinkData);
-      
-      // 기존 링크들의 order를 1씩 증가시켜 순서 유지
-      links.forEach((link, idx) => {
-        const docRef = doc(db, "users", "anonymous", "links", link.id);
-        batch.update(docRef, { order: idx + 1 });
-      });
-      
-      await batch.commit();
-
-      setLinks([newLinkData, ...links.map((l, idx) => ({ ...l, order: idx + 1 }))]);
+      // 실시간 리스너(onSnapshot)가 활성화되어 있어 setDoc만 실행하면 UI가 자동 갱신됩니다.
+      await setDoc(doc(db, "users", "anonymous", "links", newId), newLinkData);
       setIsAddDialogOpen(false);
     } catch (err) {
       console.error("Firestore에 새 링크를 추가하는 중 오류 발생:", err);
@@ -308,21 +305,9 @@ export default function AdminDashboard() {
   }
 
   async function handleDeleteLink(id: string) {
-    const updatedLinks = links.filter(link => link.id !== id);
-    setLinks(updatedLinks);
-
     try {
+      // 실시간 리스너가 감지하므로 deleteDoc만 실행하면 UI가 자동 갱신됩니다.
       await deleteDoc(doc(db, "users", "anonymous", "links", id));
-      
-      // 삭제 후 남아있는 링크들의 order 재조정
-      const batch = writeBatch(db);
-      updatedLinks.forEach((link, idx) => {
-        const docRef = doc(db, "users", "anonymous", "links", link.id);
-        batch.update(docRef, { order: idx });
-      });
-      await batch.commit();
-
-      setLinks(updatedLinks.map((l, idx) => ({ ...l, order: idx })));
     } catch (err) {
       console.error("Firestore 링크를 삭제하는 중 오류 발생:", err);
     }
