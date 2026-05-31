@@ -98,6 +98,7 @@ function SortableItem({ id, link, onUpdate, onDelete, onToggle }: SortableItemPr
 export default function AdminDashboard() {
   const [links, setLinks] = useState<LinkType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isUpdating, setIsUpdating] = useState(false);
   
   // 다이얼로그 관련 상태 선언
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -172,6 +173,7 @@ export default function AdminDashboard() {
         return newLinks;
       });
 
+      setIsUpdating(true);
       // Firestore 배치 작업으로 순서 일괄 업데이트 (createdAt 시간차 재분배)
       try {
         const batch = writeBatch(db);
@@ -186,6 +188,8 @@ export default function AdminDashboard() {
         await fetchLinks(false); // 드래그 정렬 완료 후 최신 리프레시
       } catch (err) {
         console.error("Firestore에 링크 순서를 저장하는 중 오류 발생:", err);
+      } finally {
+        setIsUpdating(false);
       }
     }
   }
@@ -284,41 +288,53 @@ export default function AdminDashboard() {
       createdAt: new Date().toISOString(), // 새 링크는 가장 최근 생성 시각 부여
     };
 
+    setIsUpdating(true);
     try {
       await setDoc(doc(db, "users", "anonymous", "links", newId), newLinkData);
       setIsAddDialogOpen(false);
       await fetchLinks(false); // 새 링크 추가 후 최신 목록으로 수동 갱신
     } catch (err) {
       console.error("Firestore에 새 링크를 추가하는 중 오류 발생:", err);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
   async function handleUpdateLink(id: string, field: keyof LinkType, value: any) {
     setLinks(links.map(link => link.id === id ? { ...link, [field]: value } : link));
+    setIsUpdating(true);
     try {
       const docRef = doc(db, "users", "anonymous", "links", id);
       await updateDoc(docRef, { [field]: value });
     } catch (err) {
       console.error("Firestore 링크 정보를 수정하는 중 오류 발생:", err);
+    } finally {
+      setIsUpdating(false);
     }
   }
 
   async function handleDeleteLink(id: string) {
+    setIsUpdating(true);
     try {
       await deleteDoc(doc(db, "users", "anonymous", "links", id));
       await fetchLinks(false); // 링크 삭제 후 목록 수동 갱신
     } catch (err) {
       console.error("Firestore 링크를 삭제하는 중 오류 발생:", err);
+    } finally {
+      setIsUpdating(false);
     }
   }
 
   async function handleToggleLink(id: string, checked: boolean) {
     setLinks(links.map(link => link.id === id ? { ...link, isActive: checked } : link));
+    setIsUpdating(true);
     try {
       const docRef = doc(db, "users", "anonymous", "links", id);
       await updateDoc(docRef, { isActive: checked });
     } catch (err) {
       console.error("Firestore 링크 활성화 토글 중 오류 발생:", err);
+    } finally {
+      setIsUpdating(false);
     }
   }
 
@@ -335,7 +351,16 @@ export default function AdminDashboard() {
   return (
     <div className="flex flex-col lg:flex-row h-screen bg-slate-100 overflow-hidden font-sans relative">
       {/* Left Area - Editor */}
-      <div className="w-full lg:w-[60%] h-full overflow-y-auto p-6 md:p-12 border-r bg-slate-50">
+      <div className="w-full lg:w-[60%] h-full overflow-y-auto p-6 md:p-12 border-r bg-slate-50 relative">
+        {/* Syncing Loading Overlay */}
+        {isUpdating && (
+          <div className="absolute inset-0 bg-slate-50/50 backdrop-blur-[1px] z-30 flex items-center justify-center animate-in fade-in duration-200">
+            <div className="bg-white px-6 py-4 rounded-2xl shadow-xl border border-slate-100 flex items-center gap-3">
+              <LucideIcons.Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+              <span className="text-sm font-bold text-slate-700">변경사항 동기화 중...</span>
+            </div>
+          </div>
+        )}
         <div className="max-w-2xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
             <h1 className="text-3xl font-black tracking-tight">링크 설정 관리</h1>
