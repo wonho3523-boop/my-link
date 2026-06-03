@@ -533,11 +533,13 @@ export default function AdminDashboard() {
   };
 
   async function handleSaveEditedLink(id: string, updatedData: Partial<LinkType>) {
-    setLinks(links.map(link => link.id === id ? { ...link, ...updatedData } : link));
+    const now = new Date().toISOString();
+    const dataWithTimestamp = { ...updatedData, updatedAt: now };
+    setLinks(links.map(link => link.id === id ? { ...link, ...dataWithTimestamp } : link));
     setIsUpdating(true);
     try {
       const docRef = doc(db, "users", "anonymous", "links", id);
-      await updateDoc(docRef, updatedData);
+      await updateDoc(docRef, dataWithTimestamp);
     } catch (err) {
       console.error("Firestore 링크 정보를 수정하는 중 오류 발생:", err);
       await fetchLinks(false);
@@ -562,11 +564,12 @@ export default function AdminDashboard() {
   }
 
   async function handleToggleLink(id: string, checked: boolean) {
-    setLinks(links.map(link => link.id === id ? { ...link, isActive: checked } : link));
+    const now = new Date().toISOString();
+    setLinks(links.map(link => link.id === id ? { ...link, isActive: checked, updatedAt: now } : link));
     setIsUpdating(true);
     try {
       const docRef = doc(db, "users", "anonymous", "links", id);
-      await updateDoc(docRef, { isActive: checked });
+      await updateDoc(docRef, { isActive: checked, updatedAt: now });
     } catch (err) {
       console.error("Firestore 링크 활성화 토글 중 오류 발생:", err);
     } finally {

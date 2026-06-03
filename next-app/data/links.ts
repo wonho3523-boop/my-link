@@ -5,6 +5,7 @@ export type Link = {
   icon: string;
   isActive?: boolean;
   createdAt?: string;
+  updatedAt?: string;
 };
 
 export const linkData: Link[] = [
