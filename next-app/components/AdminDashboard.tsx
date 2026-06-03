@@ -9,7 +9,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSo
 import { CSS } from '@dnd-kit/utilities';
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { GripVertical, Trash2 } from "lucide-react";
+import { GripVertical, Trash2, Pencil, AlertCircle, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import * as LucideIcons from "lucide-react";
 import { db } from "@/lib/firebase";
@@ -28,8 +28,9 @@ import {
 interface SortableItemProps {
   id: string;
   link: LinkType;
-  onUpdate: (id: string, field: keyof LinkType, value: any) => void;
-  onDelete: (id: string) => void;
+  links: LinkType[];
+  onSave: (id: string, updatedData: Partial<LinkType>) => Promise<void>;
+  onDeleteClick: (link: LinkType) => void;
   onToggle: (id: string, checked: boolean) => void;
 }
 
@@ -46,15 +47,241 @@ const ICON_PRESETS = [
   { name: "Link", label: "기본 링크" },
 ];
 
-function SortableItem({ id, link, onUpdate, onDelete, onToggle }: SortableItemProps) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: id });
+function SortableItem({ id, link, links, onSave, onDeleteClick, onToggle }: SortableItemProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: id });
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+    opacity: isDragging ? 0.5 : 1,
   };
 
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(link.title);
+  const [editUrl, setEditUrl] = useState(link.url);
+  const [editIcon, setEditIcon] = useState(link.icon);
+
+  const [titleError, setTitleError] = useState("");
+  const [urlError, setUrlError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setEditTitle(link.title);
+      setEditUrl(link.url);
+      setEditIcon(link.icon);
+    }
+  }, [link, isEditing]);
+
+  const validateEditTitle = (title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      setTitleError("링크 제목을 입력해 주세요.");
+      return false;
+    }
+    if (trimmed.length < 2) {
+      setTitleError("제목은 최소 2글자 이상 입력해야 합니다.");
+      return false;
+    }
+    if (trimmed.length > 20) {
+      setTitleError("제목은 최대 20자까지만 입력 가능합니다.");
+      return false;
+    }
+    setTitleError("");
+    return true;
+  };
+
+  const validateEditUrl = (url: string) => {
+    const trimmed = url.trim();
+    if (!trimmed || trimmed === "https://" || trimmed === "http://") {
+      setUrlError("URL을 입력해 주세요.");
+      return false;
+    }
+    if (!/^https?:\/\//i.test(trimmed)) {
+      setUrlError("URL은 http:// 또는 https://로 시작해야 합니다.");
+      return false;
+    }
+    
+    const urlPattern = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/i;
+    if (!urlPattern.test(trimmed)) {
+      setUrlError("올바른 URL 도메인 형식이 아닙니다.");
+      return false;
+    }
+
+    const isDuplicate = links.some(
+      (item) => item.id !== id && item.url.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (isDuplicate) {
+      setUrlError("이미 등록된 URL 주소입니다. 다른 주소를 입력해 주세요.");
+      return false;
+    }
+
+    setUrlError("");
+    return true;
+  };
+
+  const handleTitleChange = (val: string) => {
+    setEditTitle(val);
+    validateEditTitle(val);
+  };
+
+  const handleUrlChange = (val: string) => {
+    setEditUrl(val);
+    validateEditUrl(val);
+  };
+
+  const handleSave = async () => {
+    const isTitleValid = validateEditTitle(editTitle);
+    const isUrlValid = validateEditUrl(editUrl);
+
+    if (!isTitleValid || !isUrlValid) return;
+
+    setIsSaving(true);
+    try {
+      await onSave(id, {
+        title: editTitle.trim(),
+        url: editUrl.trim(),
+        icon: editIcon,
+      });
+      setIsEditing(false);
+    } catch (err) {
+      console.error("수정 실패:", err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditTitle(link.title);
+    setEditUrl(link.url);
+    setEditIcon(link.icon);
+    setTitleError("");
+    setUrlError("");
+    setIsEditing(false);
+  };
+
+  const isFormValid =
+    editTitle.trim().length >= 2 &&
+    editTitle.trim().length <= 20 &&
+    !titleError &&
+    !urlError &&
+    editUrl.trim() !== "" &&
+    editUrl.trim() !== "https://" &&
+    editUrl.trim() !== "http://";
+
   const Icon = (LucideIcons as any)[link.icon] || LucideIcons.Navigation;
+  const EditIcon = (LucideIcons as any)[editIcon] || LucideIcons.Navigation;
+
+  if (isEditing) {
+    return (
+      <div ref={setNodeRef} style={style} className="bg-white p-5 rounded-2xl shadow-md border-2 border-blue-500 mb-3 transition-all animate-in fade-in duration-200">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-10 h-10 bg-blue-50 rounded-xl border border-blue-100 shrink-0">
+              <EditIcon className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">링크 수정 중</span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-bold text-slate-600">링크 제목</label>
+                <span className={`text-[10px] font-semibold ${editTitle.length > 20 ? 'text-red-500' : 'text-slate-400'}`}>
+                  {editTitle.length}/20자
+                </span>
+              </div>
+              <Input 
+                value={editTitle}
+                onChange={(e) => handleTitleChange(e.target.value)}
+                placeholder="링크 제목"
+                className={`h-9 text-sm font-semibold rounded-xl ${
+                  titleError ? 'border-red-500 focus-visible:ring-red-100' : 'border-slate-200'
+                }`}
+              />
+              {titleError && (
+                <p className="text-[11px] text-red-500 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {titleError}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-600">연결 URL</label>
+              <Input 
+                value={editUrl}
+                onChange={(e) => handleUrlChange(e.target.value)}
+                placeholder="https://"
+                className={`h-9 text-xs rounded-xl ${
+                  urlError ? 'border-red-500 focus-visible:ring-red-100' : 'border-slate-200'
+                }`}
+              />
+              {urlError && (
+                <p className="text-[11px] text-red-500 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {urlError}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-600">아이콘 프리셋</label>
+              <div className="grid grid-cols-5 gap-1">
+                {ICON_PRESETS.map((preset) => {
+                  const PresetIcon = (LucideIcons as any)[preset.name] || LucideIcons.Navigation;
+                  const isSelected = editIcon === preset.name;
+                  return (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => setEditIcon(preset.name)}
+                      className={`flex flex-col items-center justify-center p-2 rounded-lg border transition-all duration-150 ${
+                        isSelected 
+                          ? "border-blue-500 bg-blue-50/50 text-blue-600 font-bold scale-105" 
+                          : "border-slate-100 hover:border-slate-200 hover:bg-slate-50 text-slate-500"
+                      }`}
+                    >
+                      <PresetIcon className="w-4 h-4" />
+                      <span className="text-[8px] mt-0.5 truncate max-w-full">{preset.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleCancel}
+              className="rounded-lg text-xs font-semibold h-8"
+              disabled={isSaving}
+            >
+              취소
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSave}
+              disabled={!isFormValid || isSaving}
+              className={`rounded-lg text-xs font-bold h-8 px-4 ${
+                isFormValid 
+                  ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm" 
+                  : "bg-slate-200 text-slate-400 cursor-not-allowed"
+              }`}
+            >
+              {isSaving ? "저장 중..." : "저장"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={setNodeRef} style={style} className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border mb-3 hover:shadow-md transition-shadow">
@@ -64,33 +291,35 @@ function SortableItem({ id, link, onUpdate, onDelete, onToggle }: SortableItemPr
       <div className="flex items-center justify-center w-10 h-10 bg-slate-50 rounded-lg border border-slate-100 shrink-0">
         <Icon className="w-5 h-5 text-slate-500" />
       </div>
-      <div className="flex-1 space-y-2 min-w-0">
-        <Input 
-          value={link.title} 
-          onChange={(e) => onUpdate(id, "title", e.target.value)}
-          placeholder="링크 제목"
-          className="h-8 font-semibold text-sm border-transparent hover:border-input focus:border-input px-2"
-        />
-        <Input 
-          value={link.url} 
-          onChange={(e) => onUpdate(id, "url", e.target.value)}
-          placeholder="https://"
-          className="h-8 text-xs text-slate-500 border-transparent hover:border-input focus:border-input px-2 truncate"
-        />
+      <div className="flex-1 min-w-0 py-1">
+        <h3 className="font-bold text-sm text-slate-800 truncate">{link.title}</h3>
+        <p className="text-xs text-slate-500 truncate mt-0.5">{link.url}</p>
       </div>
-      <Switch 
-        checked={link.isActive !== false} 
-        onCheckedChange={(checked) => onToggle(id, checked)}
-        className="data-[state=checked]:bg-emerald-500" 
-      />
-      <Button 
-        variant="ghost" 
-        size="icon" 
-        onClick={() => onDelete(id)}
-        className="text-slate-400 hover:text-red-600 hover:bg-red-50 shrink-0"
-      >
-        <Trash2 className="w-4 h-4" />
-      </Button>
+      <div className="flex items-center gap-1 shrink-0">
+        <Switch 
+          checked={link.isActive !== false} 
+          onCheckedChange={(checked) => onToggle(id, checked)}
+          className="data-[state=checked]:bg-emerald-500 mr-2" 
+        />
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={() => setIsEditing(true)}
+          className="text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+          title="수정"
+        >
+          <Pencil className="w-4 h-4" />
+        </Button>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={() => onDeleteClick(link)}
+          className="text-slate-400 hover:text-red-600 hover:bg-red-50"
+          title="삭제"
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -105,6 +334,9 @@ export default function AdminDashboard() {
   const [newLinkTitle, setNewLinkTitle] = useState("");
   const [newLinkUrl, setNewLinkUrl] = useState("https://");
   const [newLinkIcon, setNewLinkIcon] = useState("Link");
+
+  // 삭제 확인 모달 상태 선언
+  const [deletingLink, setDeletingLink] = useState<LinkType | null>(null);
   
   // 입력 검증 세분화 에러 상태
   const [titleError, setTitleError] = useState("");
@@ -300,24 +532,28 @@ export default function AdminDashboard() {
     }
   };
 
-  async function handleUpdateLink(id: string, field: keyof LinkType, value: any) {
-    setLinks(links.map(link => link.id === id ? { ...link, [field]: value } : link));
+  async function handleSaveEditedLink(id: string, updatedData: Partial<LinkType>) {
+    setLinks(links.map(link => link.id === id ? { ...link, ...updatedData } : link));
     setIsUpdating(true);
     try {
       const docRef = doc(db, "users", "anonymous", "links", id);
-      await updateDoc(docRef, { [field]: value });
+      await updateDoc(docRef, updatedData);
     } catch (err) {
       console.error("Firestore 링크 정보를 수정하는 중 오류 발생:", err);
+      await fetchLinks(false);
+      throw err;
     } finally {
       setIsUpdating(false);
     }
   }
 
-  async function handleDeleteLink(id: string) {
+  async function handleConfirmDelete() {
+    if (!deletingLink) return;
     setIsUpdating(true);
     try {
-      await deleteDoc(doc(db, "users", "anonymous", "links", id));
-      await fetchLinks(false); // 링크 삭제 후 목록 수동 갱신
+      await deleteDoc(doc(db, "users", "anonymous", "links", deletingLink.id));
+      setDeletingLink(null);
+      await fetchLinks(false);
     } catch (err) {
       console.error("Firestore 링크를 삭제하는 중 오류 발생:", err);
     } finally {
@@ -403,8 +639,9 @@ export default function AdminDashboard() {
                       key={link.id} 
                       id={link.id} 
                       link={link} 
-                      onUpdate={handleUpdateLink}
-                      onDelete={handleDeleteLink}
+                      links={links}
+                      onSave={handleSaveEditedLink}
+                      onDeleteClick={setDeletingLink}
                       onToggle={handleToggleLink}
                     />
                   ))}
@@ -564,6 +801,54 @@ export default function AdminDashboard() {
                 }`}
               >
                 링크 추가하기
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- DELETE CONFIRMATION DIALOG (MODAL) --- */}
+      {deletingLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="absolute inset-0" onClick={() => setDeletingLink(null)} />
+          
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 relative z-10 transform transition-all animate-in zoom-in-95 duration-200 flex flex-col">
+            <div className="flex items-center gap-3 pb-4 border-b border-slate-100 mb-6">
+              <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">정말 삭제하시겠습니까?</h2>
+              </div>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <span className="text-xs text-slate-400 font-bold block mb-1">삭제 대상 링크</span>
+                <span className="text-sm font-bold text-slate-700">{deletingLink.title}</span>
+                <span className="text-xs text-slate-500 block truncate mt-0.5">{deletingLink.url}</span>
+              </div>
+              <p className="text-sm font-semibold text-red-600 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                이 작업은 되돌릴 수 없습니다.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setDeletingLink(null)}
+                className="rounded-xl px-5 py-2.5 font-semibold text-slate-600 hover:bg-slate-100 h-11"
+              >
+                취소
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="bg-red-600 hover:bg-red-700 text-white rounded-xl px-6 py-2.5 font-bold h-11 transition-all duration-200 shadow-md shadow-red-200"
+              >
+                삭제하기
               </Button>
             </div>
           </div>
