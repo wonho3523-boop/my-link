@@ -8,9 +8,11 @@ import * as LucideIcons from "lucide-react";
 
 export default function PublicProfile({
   username,
+  avatarUrl,
   links
 }: {
   username: string;
+  avatarUrl?: string;
   links: LinkType[];
 }) {
   const handleCopyLink = (url: string) => {
@@ -24,7 +26,11 @@ export default function PublicProfile({
     <div className="w-full max-w-md mx-auto min-h-screen bg-slate-50 flex flex-col pt-16 pb-8 px-4 shadow-sm border-x relative">
       <div className="flex flex-col items-center mb-8">
         <Avatar className="w-24 h-24 mb-4 border border-border">
-          <AvatarImage src={`https://api.dicebear.com/7.x/notionists/svg?seed=${username}`} />
+          {avatarUrl ? (
+            <AvatarImage src={avatarUrl} alt={username} />
+          ) : (
+            <AvatarImage src={`https://api.dicebear.com/7.x/notionists/svg?seed=${username}`} />
+          )}
           <AvatarFallback>{username[0]?.toUpperCase()}</AvatarFallback>
         </Avatar>
         <h1 className="text-xl font-bold">@{username}</h1>

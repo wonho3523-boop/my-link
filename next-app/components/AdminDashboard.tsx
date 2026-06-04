@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from "react";
+import { User } from "firebase/auth";
 import { Link as LinkType } from "@/data/links";
 import { linkData } from "@/data/links";
 import PublicProfile from "./PublicProfile";
@@ -324,7 +325,7 @@ function SortableItem({ id, link, links, onSave, onDeleteClick, onToggle }: Sort
   );
 }
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ user }: { user: User }) {
   const [links, setLinks] = useState<LinkType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -353,7 +354,7 @@ export default function AdminDashboard() {
   async function fetchLinks(showLoading = true) {
     if (showLoading) setIsLoading(true);
     try {
-      const linksRef = collection(db, "users", "anonymous", "links");
+      const linksRef = collection(db, "users", user.uid, "links");
       const q = query(linksRef, orderBy("createdAt", "desc"));
       const querySnapshot = await getDocs(q);
       
@@ -369,7 +370,7 @@ export default function AdminDashboard() {
         }));
         
         initialLinks.forEach((link) => {
-          const docRef = doc(db, "users", "anonymous", "links", link.id);
+          const docRef = doc(db, "users", user.uid, "links", link.id);
           batch.set(docRef, link);
         });
         
@@ -389,10 +390,27 @@ export default function AdminDashboard() {
     }
   }
 
+  // 사용자 프로필 정보를 Firestore에 동기화
+  async function syncUserProfile() {
+    try {
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, {
+        uid: user.uid,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        email: user.email,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (error) {
+      console.error("사용자 프로필 동기화 실패:", error);
+    }
+  }
+
   // 초기 로드 시 1회 데이터 fetch
   useEffect(() => {
+    syncUserProfile();
     fetchLinks(true);
-  }, []);
+  }, [user.uid]);
 
   async function handleDragEnd(event: any) {
     const { active, over } = event;
@@ -411,7 +429,7 @@ export default function AdminDashboard() {
         const batch = writeBatch(db);
         const now = Date.now();
         newLinks.forEach((link, idx) => {
-          const docRef = doc(db, "users", "anonymous", "links", link.id);
+          const docRef = doc(db, "users", user.uid, "links", link.id);
           // 역순 정렬("desc")이므로, index가 0일 때 가장 최신(createdAt이 가장 큼)이어야 합니다.
           const calculatedCreatedAt = new Date(now - idx * 1000).toISOString();
           batch.update(docRef, { createdAt: calculatedCreatedAt });
@@ -522,7 +540,7 @@ export default function AdminDashboard() {
 
     setIsUpdating(true);
     try {
-      await setDoc(doc(db, "users", "anonymous", "links", newId), newLinkData);
+      await setDoc(doc(db, "users", user.uid, "links", newId), newLinkData);
       setIsAddDialogOpen(false);
       await fetchLinks(false); // 새 링크 추가 후 최신 목록으로 수동 갱신
     } catch (err) {
@@ -538,7 +556,7 @@ export default function AdminDashboard() {
     setLinks(links.map(link => link.id === id ? { ...link, ...dataWithTimestamp } : link));
     setIsUpdating(true);
     try {
-      const docRef = doc(db, "users", "anonymous", "links", id);
+      const docRef = doc(db, "users", user.uid, "links", id);
       await updateDoc(docRef, dataWithTimestamp);
     } catch (err) {
       console.error("Firestore 링크 정보를 수정하는 중 오류 발생:", err);
@@ -553,7 +571,7 @@ export default function AdminDashboard() {
     if (!deletingLink) return;
     setIsUpdating(true);
     try {
-      await deleteDoc(doc(db, "users", "anonymous", "links", deletingLink.id));
+      await deleteDoc(doc(db, "users", user.uid, "links", deletingLink.id));
       setDeletingLink(null);
       await fetchLinks(false);
     } catch (err) {
@@ -568,7 +586,7 @@ export default function AdminDashboard() {
     setLinks(links.map(link => link.id === id ? { ...link, isActive: checked, updatedAt: now } : link));
     setIsUpdating(true);
     try {
-      const docRef = doc(db, "users", "anonymous", "links", id);
+      const docRef = doc(db, "users", user.uid, "links", id);
       await updateDoc(docRef, { isActive: checked, updatedAt: now });
     } catch (err) {
       console.error("Firestore 링크 활성화 토글 중 오류 발생:", err);
@@ -602,7 +620,7 @@ export default function AdminDashboard() {
         )}
         <div className="max-w-2xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
-            <h1 className="text-3xl font-black tracking-tight">링크 설정 관리</h1>
+            <h1 className="text-3xl font-black tracking-tight">마이페이지 설정 관리</h1>
             <Button 
               onClick={handleOpenAddDialog}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-full px-6 shadow-sm shadow-blue-200 hover:scale-102 transition-transform duration-200"
@@ -667,7 +685,11 @@ export default function AdminDashboard() {
           
           {/* Scrollable Screen Content */}
           <div className="h-full w-full overflow-y-auto bg-slate-50 relative z-10 scrollbar-hide">
-            <PublicProfile username="관리자" links={links} />
+            <PublicProfile 
+              username={user.displayName || "User"} 
+              avatarUrl={user.photoURL || undefined} 
+              links={links} 
+            />
           </div>
         </div>
       </div>
