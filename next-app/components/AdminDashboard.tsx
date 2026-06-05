@@ -10,8 +10,10 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSo
 import { CSS } from '@dnd-kit/utilities';
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GripVertical, Trash2, Pencil, AlertCircle, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 import * as LucideIcons from "lucide-react";
 import { db } from "@/lib/firebase";
 import { 
@@ -19,11 +21,13 @@ import {
   getDocs, 
   setDoc, 
   doc, 
+  getDoc,
   deleteDoc, 
   updateDoc, 
   writeBatch, 
   query, 
-  orderBy 
+  orderBy,
+  where
 } from "firebase/firestore";
 
 interface SortableItemProps {
@@ -330,6 +334,28 @@ export default function AdminDashboard({ user }: { user: User }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   
+  // 탭 상태 ("links" = 링크 관리, "profile" = 프로필 설정)
+  const [activeTab, setActiveTab] = useState<"links" | "profile">("links");
+
+  // 프로필 설정 상태 선언
+  const [profileUsername, setProfileUsername] = useState("");
+  const [originalUsername, setOriginalUsername] = useState("");
+  const [profileDisplayName, setProfileDisplayName] = useState("");
+  const [originalDisplayName, setOriginalDisplayName] = useState("");
+  const [profileBio, setProfileBio] = useState("");
+  const [profilePhotoURL, setProfilePhotoURL] = useState("");
+
+  // 중복 확인 관련 상태
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
+  const [usernameChecked, setUsernameChecked] = useState(false);
+  const [usernameError, setUsernameError] = useState("");
+
+  const [isCheckingDisplayName, setIsCheckingDisplayName] = useState(false);
+  const [displayNameChecked, setDisplayNameChecked] = useState(false);
+  const [displayNameError, setDisplayNameError] = useState("");
+
+  const [isProfileSaving, setIsProfileSaving] = useState(false);
+
   // 다이얼로그 관련 상태 선언
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newLinkTitle, setNewLinkTitle] = useState("");
@@ -362,8 +388,6 @@ export default function AdminDashboard({ user }: { user: User }) {
         // Firestore에 데이터가 전혀 없다면 초기 데이터 시딩(마이그레이션) 진행
         const batch = writeBatch(db);
         const now = Date.now();
-        // 역순 정렬("desc")이므로, order 순서대로 표시되려면 
-        // index가 낮을수록 더 최신(createdAt이 더 큼)이어야 합니다.
         const initialLinks = linkData.map((link, index) => ({
           ...link,
           createdAt: new Date(now - index * 1000).toISOString(),
@@ -390,25 +414,190 @@ export default function AdminDashboard({ user }: { user: User }) {
     }
   }
 
-  // 사용자 프로필 정보를 Firestore에 동기화
-  async function syncUserProfile() {
+  // 사용자 프로필 정보를 Firestore에서 가져오거나 새로 동기화
+  async function loadUserProfile() {
     try {
       const userRef = doc(db, "users", user.uid);
-      await setDoc(userRef, {
-        uid: user.uid,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        email: user.email,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      const userSnap = await getDoc(userRef);
+      
+      if (userSnap.exists()) {
+        const data = userSnap.data();
+        const uname = data.username || "";
+        const dname = data.displayName || "";
+        const bioText = data.bio || "";
+        const photo = data.photoURL || "";
+
+        setProfileUsername(uname);
+        setOriginalUsername(uname);
+        setProfileDisplayName(dname);
+        setOriginalDisplayName(dname);
+        setProfileBio(bioText);
+        setProfilePhotoURL(photo);
+      } else {
+        // 최초 가입 유저: 기본 프로필 설정 구성 및 Firestore 생성
+        const emailId = user.email ? user.email.split('@')[0] : "user";
+        const initialUsername = emailId.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase() || `user_${Date.now().toString().slice(-6)}`;
+        const initialDisplayName = user.displayName || emailId || "User";
+        const initialPhoto = user.photoURL || "";
+        const initialBio = "안녕하세요! 저의 마이링크 페이지에 오신 것을 환영합니다.";
+
+        await setDoc(userRef, {
+          uid: user.uid,
+          displayName: initialDisplayName,
+          photoURL: initialPhoto,
+          email: user.email || "",
+          username: initialUsername,
+          bio: initialBio,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+
+        setProfileUsername(initialUsername);
+        setOriginalUsername(initialUsername);
+        setProfileDisplayName(initialDisplayName);
+        setOriginalDisplayName(initialDisplayName);
+        setProfilePhotoURL(initialPhoto);
+        setProfileBio(initialBio);
+      }
     } catch (error) {
-      console.error("사용자 프로필 동기화 실패:", error);
+      console.error("사용자 프로필 로드 실패:", error);
     }
   }
 
-  // 초기 로드 시 1회 데이터 fetch
+  // 사용자 고유 주소(username) 중복 검사
+  const checkUsernameDuplicate = async () => {
+    const trimmed = profileUsername.trim().toLowerCase();
+    if (!trimmed) {
+      setUsernameError("고유 주소(username)를 입력해 주세요.");
+      return;
+    }
+    if (!/^[a-z0-9_]{2,20}$/.test(trimmed)) {
+      setUsernameError("영문 소문자, 숫자, 언더바(_)만 사용하여 2~20자 입력해 주세요.");
+      return;
+    }
+
+    setIsCheckingUsername(true);
+    setUsernameError("");
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("username", "==", trimmed));
+      const querySnapshot = await getDocs(q);
+      
+      let isDuplicate = false;
+      querySnapshot.forEach((doc) => {
+        if (doc.id !== user.uid) {
+          isDuplicate = true;
+        }
+      });
+
+      if (isDuplicate) {
+        setUsernameError("이미 존재하는 고유 주소입니다. 다른 주소를 입력해 주세요.");
+        setUsernameChecked(false);
+      } else {
+        setUsernameChecked(true);
+        setUsernameError("");
+        toast("사용 가능한 고유 주소입니다.", {
+          description: `@${trimmed} 주소를 사용할 수 있습니다.`,
+        });
+      }
+    } catch (error) {
+      console.error("username 중복 검사 에러:", error);
+      setUsernameError("중복 검사 중 오류가 발생했습니다.");
+    } finally {
+      setIsCheckingUsername(false);
+    }
+  };
+
+  // 표시 이름(displayName) 중복 검사
+  const checkDisplayNameDuplicate = async () => {
+    const trimmed = profileDisplayName.trim();
+    if (!trimmed) {
+      setDisplayNameError("표시 이름을 입력해 주세요.");
+      return;
+    }
+    if (trimmed.length < 2 || trimmed.length > 20) {
+      setDisplayNameError("표시 이름은 2글자 이상, 20글자 이하여야 합니다.");
+      return;
+    }
+
+    setIsCheckingDisplayName(true);
+    setDisplayNameError("");
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("displayName", "==", trimmed));
+      const querySnapshot = await getDocs(q);
+      
+      let isDuplicate = false;
+      querySnapshot.forEach((doc) => {
+        if (doc.id !== user.uid) {
+          isDuplicate = true;
+        }
+      });
+
+      if (isDuplicate) {
+        setDisplayNameError("이미 사용 중인 표시 이름입니다.");
+        setDisplayNameChecked(false);
+      } else {
+        setDisplayNameChecked(true);
+        setDisplayNameError("");
+        toast("사용 가능한 표시 이름입니다.", {
+          description: `"${trimmed}" 표시 이름을 사용할 수 있습니다.`,
+        });
+      }
+    } catch (error) {
+      console.error("displayName 중복 검사 에러:", error);
+      setDisplayNameError("중복 검사 중 오류가 발생했습니다.");
+    } finally {
+      setIsCheckingDisplayName(false);
+    }
+  };
+
+  // 프로필 정보 저장
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const trimmedUsername = profileUsername.trim().toLowerCase();
+    const trimmedDisplayName = profileDisplayName.trim();
+
+    if (!trimmedUsername || !trimmedDisplayName) {
+      toast("필수 항목을 입력해 주세요.", {
+        description: "고유 주소와 표시 이름은 필수입니다.",
+      });
+      return;
+    }
+
+    setIsProfileSaving(true);
+    try {
+      const userRef = doc(db, "users", user.uid);
+      await updateDoc(userRef, {
+        username: trimmedUsername,
+        displayName: trimmedDisplayName,
+        bio: profileBio.trim(),
+        photoURL: profilePhotoURL.trim(),
+        updatedAt: new Date().toISOString()
+      });
+
+      setOriginalUsername(trimmedUsername);
+      setOriginalDisplayName(trimmedDisplayName);
+      setUsernameChecked(false);
+      setDisplayNameChecked(false);
+
+      toast("프로필이 성공적으로 저장되었습니다.", {
+        description: "변경사항이 퍼블릭 페이지에 즉시 반영됩니다.",
+      });
+    } catch (error) {
+      console.error("프로필 업데이트 실패:", error);
+      toast("프로필 저장에 실패했습니다.", {
+        description: "잠시 후 다시 시도해 주세요.",
+      });
+    } finally {
+      setIsProfileSaving(false);
+    }
+  };
+
+  // 초기 로드 시 1회 데이터 fetch 및 프로필 세팅
   useEffect(() => {
-    syncUserProfile();
+    loadUserProfile();
     fetchLinks(true);
   }, [user.uid]);
 
@@ -610,7 +799,7 @@ export default function AdminDashboard({ user }: { user: User }) {
       {/* Left Area - Editor */}
       <div className="w-full lg:w-[60%] h-full overflow-y-auto p-6 md:p-12 border-r bg-slate-50 relative">
         {/* Syncing Loading Overlay */}
-        {isUpdating && (
+        {(isUpdating || isProfileSaving) && (
           <div className="absolute inset-0 bg-slate-50/50 backdrop-blur-[1px] z-30 flex items-center justify-center animate-in fade-in duration-200">
             <div className="bg-white px-6 py-4 rounded-2xl shadow-xl border border-slate-100 flex items-center gap-3">
               <LucideIcons.Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
@@ -619,57 +808,280 @@ export default function AdminDashboard({ user }: { user: User }) {
           </div>
         )}
         <div className="max-w-2xl mx-auto">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
             <h1 className="text-3xl font-black tracking-tight">마이페이지 설정 관리</h1>
-            <Button 
-              onClick={handleOpenAddDialog}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-full px-6 shadow-sm shadow-blue-200 hover:scale-102 transition-transform duration-200"
-            >
-              + 새로운 링크 추가
-            </Button>
-          </div>
-          
-          <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mb-8">
-            <p className="text-sm font-semibold text-blue-800 mb-4">현재 화면에 표시할 링크를 편집하고 순서를 변경하세요.</p>
-            {isLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((n) => (
-                  <div key={n} className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border mb-3 animate-pulse">
-                    <div className="w-5 h-5 bg-slate-200 rounded shrink-0 animate-pulse" />
-                    <div className="w-10 h-10 bg-slate-100 rounded-lg border border-slate-50 shrink-0" />
-                    <div className="flex-1 space-y-2">
-                      <div className="h-4 bg-slate-200 rounded w-1/3" />
-                      <div className="h-3 bg-slate-200 rounded w-1/2" />
-                    </div>
-                    <div className="w-10 h-6 bg-slate-200 rounded-full shrink-0" />
-                    <div className="w-8 h-8 bg-slate-200 rounded shrink-0" />
-                  </div>
-                ))}
-              </div>
-            ) : links.length === 0 ? (
-              <div className="bg-white/60 border border-dashed border-slate-200 rounded-xl p-12 text-center text-slate-400">
-                <LucideIcons.Link className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm font-medium">등록된 링크가 없습니다.</p>
-                <p className="text-xs mt-1">상단의 '+ 새로운 링크 추가'를 눌러 링크를 등록해보세요.</p>
-              </div>
-            ) : (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={links.map(l => l.id)} strategy={verticalListSortingStrategy}>
-                  {links.map(link => (
-                    <SortableItem 
-                      key={link.id} 
-                      id={link.id} 
-                      link={link} 
-                      links={links}
-                      onSave={handleSaveEditedLink}
-                      onDeleteClick={setDeletingLink}
-                      onToggle={handleToggleLink}
-                    />
-                  ))}
-                </SortableContext>
-              </DndContext>
+            {activeTab === "links" && (
+              <Button 
+                onClick={handleOpenAddDialog}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-full px-6 shadow-sm shadow-blue-200 hover:scale-102 transition-transform duration-200"
+              >
+                + 새로운 링크 추가
+              </Button>
             )}
           </div>
+
+          {/* Premium Segmented control tabs */}
+          <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 mb-8 max-w-md">
+            <button
+              onClick={() => setActiveTab("links")}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
+                activeTab === "links"
+                  ? "bg-white text-blue-600 shadow-sm border border-slate-100 scale-102"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <LucideIcons.Link className="w-4 h-4" />
+              링크 관리
+            </button>
+            <button
+              onClick={() => setActiveTab("profile")}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
+                activeTab === "profile"
+                  ? "bg-white text-blue-600 shadow-sm border border-slate-100 scale-102"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <LucideIcons.User className="w-4 h-4" />
+              프로필 설정
+            </button>
+          </div>
+          
+          {activeTab === "links" ? (
+            <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mb-8">
+              <p className="text-sm font-semibold text-blue-800 mb-4">현재 화면에 표시할 링크를 편집하고 순서를 변경하세요.</p>
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} className="flex items-center gap-4 bg-white p-4 rounded-xl shadow-sm border mb-3 animate-pulse">
+                      <div className="w-5 h-5 bg-slate-200 rounded shrink-0 animate-pulse" />
+                      <div className="w-10 h-10 bg-slate-100 rounded-lg border border-slate-50 shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-slate-200 rounded w-1/3" />
+                        <div className="h-3 bg-slate-200 rounded w-1/2" />
+                      </div>
+                      <div className="w-10 h-6 bg-slate-200 rounded-full shrink-0" />
+                      <div className="w-8 h-8 bg-slate-200 rounded shrink-0" />
+                    </div>
+                  ))}
+                </div>
+              ) : links.length === 0 ? (
+                <div className="bg-white/60 border border-dashed border-slate-200 rounded-xl p-12 text-center text-slate-400">
+                  <LucideIcons.Link className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm font-medium">등록된 링크가 없습니다.</p>
+                  <p className="text-xs mt-1">상단의 '+ 새로운 링크 추가'를 눌러 링크를 등록해보세요.</p>
+                </div>
+              ) : (
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={links.map(l => l.id)} strategy={verticalListSortingStrategy}>
+                    {links.map(link => (
+                      <SortableItem 
+                        key={link.id} 
+                        id={link.id} 
+                        link={link} 
+                        links={links}
+                        onSave={handleSaveEditedLink}
+                        onDeleteClick={setDeletingLink}
+                        onToggle={handleToggleLink}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
+              )}
+            </div>
+          ) : (
+            <form onSubmit={handleSaveProfile} className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm space-y-6 mb-8 animate-in fade-in duration-200">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 border-b pb-3 border-slate-100">
+                <LucideIcons.UserCog className="w-5 h-5 text-blue-600" />
+                내 프로필 정보 편집
+              </h2>
+
+              {/* Avatar Image Url */}
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                  <LucideIcons.Image className="w-4 h-4 text-purple-500" />
+                  프로필 아바타 이미지 주소
+                </label>
+                <div className="flex gap-3 items-center">
+                  <Avatar className="w-16 h-16 border border-slate-200 shrink-0">
+                    {profilePhotoURL ? (
+                      <AvatarImage src={profilePhotoURL} alt="Avatar Preview" />
+                    ) : (
+                      <AvatarImage src={`https://api.dicebear.com/7.x/notionists/svg?seed=${profileUsername || "user"}`} />
+                    )}
+                    <AvatarFallback>?</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 space-y-1">
+                    <Input
+                      value={profilePhotoURL}
+                      onChange={(e) => setProfilePhotoURL(e.target.value)}
+                      placeholder="https://example.com/avatar.jpg"
+                      className="rounded-xl border-slate-200 focus:border-blue-500 text-xs h-10"
+                    />
+                    <p className="text-[10px] text-slate-400 font-semibold">직접 사용할 프로필 이미지 주소 URL을 입력하거나 비워두면 자동으로 기본 아바타를 생성합니다.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Username Input */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                    <LucideIcons.Globe className="w-4 h-4 text-emerald-500" />
+                    내 페이지 고유 주소 (username)
+                  </label>
+                  {profileUsername.trim().toLowerCase() !== originalUsername && (
+                    <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 rounded px-1.5 py-0.5 font-bold">
+                      변경됨 (중복 검사 필요)
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 font-bold">@</span>
+                    <Input
+                      value={profileUsername}
+                      onChange={(e) => {
+                        const sanitized = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
+                        setProfileUsername(sanitized);
+                        setUsernameChecked(false);
+                        setUsernameError("");
+                      }}
+                      placeholder="username"
+                      className={`pl-7 rounded-xl border-slate-200 focus:border-blue-500 font-semibold h-11 ${
+                        usernameError ? 'border-red-500' : usernameChecked ? 'border-emerald-500' : ''
+                      }`}
+                      required
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={checkUsernameDuplicate}
+                    disabled={isCheckingUsername || profileUsername.trim() === "" || profileUsername.trim().toLowerCase() === originalUsername}
+                    className={`rounded-xl px-4 font-bold text-xs h-11 shrink-0 ${
+                      profileUsername.trim().toLowerCase() === originalUsername
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed border"
+                        : "bg-slate-900 hover:bg-slate-800 text-white"
+                    }`}
+                  >
+                    {isCheckingUsername ? "확인 중..." : "중복 확인"}
+                  </Button>
+                </div>
+                {usernameError && (
+                  <p className="text-xs text-red-500 flex items-center gap-1 animate-in fade-in duration-150">
+                    <LucideIcons.AlertCircle className="w-3.5 h-3.5" />
+                    {usernameError}
+                  </p>
+                )}
+                {usernameChecked && profileUsername.trim().toLowerCase() !== originalUsername && (
+                  <p className="text-xs text-emerald-600 flex items-center gap-1 animate-in fade-in duration-150">
+                    <LucideIcons.CheckCircle2 className="w-3.5 h-3.5" />
+                    사용 가능한 고유 주소입니다.
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-400 font-medium">내 퍼블릭 페이지 URL 경로에 적용됩니다. (예: mylink.com/username) 영문 소문자, 숫자, 언더바(_)만 사용하여 2~20자까지 가능합니다.</p>
+              </div>
+
+              {/* Display Name Input */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                    <LucideIcons.User className="w-4 h-4 text-blue-500" />
+                    표시 이름 (displayName)
+                  </label>
+                  {profileDisplayName.trim() !== originalDisplayName && (
+                    <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 rounded px-1.5 py-0.5 font-bold">
+                      변경됨 (중복 검사 권장)
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={profileDisplayName}
+                    onChange={(e) => {
+                      setProfileDisplayName(e.target.value);
+                      setDisplayNameChecked(false);
+                      setDisplayNameError("");
+                    }}
+                    placeholder="이름 또는 브랜드명"
+                    className={`rounded-xl border-slate-200 focus:border-blue-500 font-semibold h-11 ${
+                      displayNameError ? 'border-red-500' : displayNameChecked ? 'border-emerald-500' : ''
+                    }`}
+                    required
+                  />
+                  <Button
+                    type="button"
+                    onClick={checkDisplayNameDuplicate}
+                    disabled={isCheckingDisplayName || profileDisplayName.trim() === "" || profileDisplayName.trim() === originalDisplayName}
+                    className={`rounded-xl px-4 font-bold text-xs h-11 shrink-0 ${
+                      profileDisplayName.trim() === originalDisplayName
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed border"
+                        : "bg-slate-900 hover:bg-slate-800 text-white"
+                    }`}
+                  >
+                    {isCheckingDisplayName ? "확인 중..." : "중복 확인"}
+                  </Button>
+                </div>
+                {displayNameError && (
+                  <p className="text-xs text-red-500 flex items-center gap-1 animate-in fade-in duration-150">
+                    <LucideIcons.AlertCircle className="w-3.5 h-3.5" />
+                    {displayNameError}
+                  </p>
+                )}
+                {displayNameChecked && profileDisplayName.trim() !== originalDisplayName && (
+                  <p className="text-xs text-emerald-600 flex items-center gap-1 animate-in fade-in duration-150">
+                    <LucideIcons.CheckCircle2 className="w-3.5 h-3.5" />
+                    사용 가능한 표시 이름입니다.
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-400 font-medium">프로필 화면 최상단에 노출되는 이름입니다.</p>
+              </div>
+
+              {/* Bio TextArea */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                    <LucideIcons.TextQuote className="w-4 h-4 text-amber-500" />
+                    소개글 (bio)
+                  </label>
+                  <span className={`text-[10px] font-bold ${profileBio.length > 100 ? 'text-red-500' : 'text-slate-400'}`}>
+                    {profileBio.length}/100자
+                  </span>
+                </div>
+                <textarea
+                  value={profileBio}
+                  onChange={(e) => setProfileBio(e.target.value.slice(0, 100))}
+                  placeholder="방문자들에게 전할 환영 인사를 남겨보세요."
+                  rows={3}
+                  className="w-full p-3.5 text-sm font-semibold rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 resize-none transition-all scrollbar-hide"
+                />
+              </div>
+
+              {/* Save Button */}
+              <div className="pt-4 border-t border-slate-100 flex justify-end">
+                <Button
+                  type="submit"
+                  disabled={
+                    isProfileSaving ||
+                    profileUsername.trim() === "" ||
+                    profileDisplayName.trim() === "" ||
+                    (profileUsername.trim().toLowerCase() !== originalUsername && !usernameChecked) ||
+                    (profileDisplayName.trim() !== originalDisplayName && !displayNameChecked)
+                  }
+                  className={`rounded-2xl h-12 px-8 font-bold transition-all duration-200 ${
+                    (!isProfileSaving &&
+                     profileUsername.trim() !== "" && 
+                     profileDisplayName.trim() !== "" && 
+                     (profileUsername.trim().toLowerCase() === originalUsername || usernameChecked) &&
+                     (profileDisplayName.trim() === originalDisplayName || displayNameChecked))
+                      ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-200"
+                      : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  }`}
+                >
+                  {isProfileSaving ? "저장 중..." : "변경사항 저장"}
+                </Button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
 
@@ -686,8 +1098,9 @@ export default function AdminDashboard({ user }: { user: User }) {
           {/* Scrollable Screen Content */}
           <div className="h-full w-full overflow-y-auto bg-slate-50 relative z-10 scrollbar-hide">
             <PublicProfile 
-              username={user.displayName || "User"} 
-              avatarUrl={user.photoURL || undefined} 
+              username={profileDisplayName || profileUsername || "User"} 
+              avatarUrl={profilePhotoURL || undefined} 
+              bio={profileBio}
               links={links} 
             />
           </div>

@@ -9,10 +9,12 @@ import * as LucideIcons from "lucide-react";
 export default function PublicProfile({
   username,
   avatarUrl,
+  bio,
   links
 }: {
   username: string;
   avatarUrl?: string;
+  bio?: string;
   links: LinkType[];
 }) {
   const handleCopyLink = (url: string) => {
@@ -34,7 +36,9 @@ export default function PublicProfile({
           <AvatarFallback>{username[0]?.toUpperCase()}</AvatarFallback>
         </Avatar>
         <h1 className="text-xl font-bold">@{username}</h1>
-        <p className="text-sm text-muted-foreground mt-2 text-center">안녕하세요, {username}님의 마이링크입니다.</p>
+        <p className="text-sm text-muted-foreground mt-2 text-center whitespace-pre-wrap">
+          {bio || `안녕하세요, ${username}님의 마이링크입니다.`}
+        </p>
       </div>
 
       <div className="flex flex-col gap-3 flex-1">
