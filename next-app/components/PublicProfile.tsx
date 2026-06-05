@@ -5,18 +5,34 @@ import { Link as LinkType } from "@/data/links";
 import { toast } from "sonner";
 import { Copy, Navigation } from "lucide-react";
 import * as LucideIcons from "lucide-react";
+import { db } from "@/lib/firebase";
+import { doc, updateDoc, increment } from "firebase/firestore";
 
 export default function PublicProfile({
   username,
   avatarUrl,
   bio,
-  links
+  links,
+  userId
 }: {
   username: string;
   avatarUrl?: string;
   bio?: string;
   links: LinkType[];
+  userId?: string;
 }) {
+  const handleLinkClick = async (linkId: string) => {
+    if (!userId) return;
+    try {
+      const linkRef = doc(db, "users", userId, "links", linkId);
+      await updateDoc(linkRef, {
+        clicks: increment(1)
+      });
+    } catch (error) {
+      console.error("클릭 수 업데이트 실패:", error);
+    }
+  };
+
   const handleCopyLink = (url: string) => {
     navigator.clipboard.writeText(url);
     toast("클립보드에 복사되었습니다.", {
@@ -54,6 +70,7 @@ export default function PublicProfile({
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => handleLinkClick(link.id)}
                 className="flex items-center p-4 bg-white hover:bg-slate-100 transition-colors rounded-xl border shadow-sm w-full"
               >
                 <div className="flex items-center justify-center w-10 h-10 bg-slate-100 rounded-lg mr-4">

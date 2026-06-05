@@ -6,6 +6,7 @@ export type Link = {
   isActive?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  clicks?: number;
 };
 
 export const linkData: Link[] = [

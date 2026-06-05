@@ -63,7 +63,7 @@ export default async function UserPublicPage({ params }: PageProps) {
   
   return (
     <main className="min-h-screen bg-slate-100 flex items-center justify-center font-sans w-full">
-      <PublicProfile username={username} avatarUrl={avatarUrl} bio={bio} links={links} />
+      <PublicProfile username={username} avatarUrl={avatarUrl} bio={bio} links={links} userId={uid} />
     </main>
   );
 }

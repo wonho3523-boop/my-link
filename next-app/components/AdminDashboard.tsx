@@ -12,7 +12,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { GripVertical, Trash2, Pencil, AlertCircle, AlertTriangle } from "lucide-react";
+import { GripVertical, Trash2, Pencil, AlertCircle, AlertTriangle, MousePointerClick } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import * as LucideIcons from "lucide-react";
@@ -302,6 +302,10 @@ function SortableItem({ id, link, links, onSave, onDeleteClick, onToggle }: Sort
         <p className="text-xs text-slate-500 truncate mt-0.5">{link.url}</p>
       </div>
       <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200/80 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 mr-2 border border-slate-200/40 select-none transition-colors" title="누적 클릭 수">
+          <MousePointerClick className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
+          <span>{link.clicks || 0}</span>
+        </div>
         <Switch 
           checked={link.isActive !== false} 
           onCheckedChange={(checked) => onToggle(id, checked)}

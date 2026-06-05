@@ -35,13 +35,34 @@ service cloud.firestore {
         // 읽기 권한: 누구나 허용
         allow read: if true;
         
-        // 쓰기 권한: 로그인된 본인만 허용 및 링크 데이터 유효성 검증
-        allow write: if isOwner(userId)
+        // 생성 권한: 로그인된 본인만 허용 및 데이터 유효성 검증
+        allow create: if isOwner(userId)
                       && request.resource.data.title is string
                       && request.resource.data.title.size() >= 2
                       && request.resource.data.title.size() <= 20
                       && request.resource.data.url is string
                       && request.resource.data.url.matches('^https?://.+');
+        
+        // 수정 권한: 본인 수정 또는 타인의 클릭 수(clicks) 1 증가 업데이트 허용
+        allow update: if (
+                        isOwner(userId)
+                        && request.resource.data.title is string
+                        && request.resource.data.title.size() >= 2
+                        && request.resource.data.title.size() <= 20
+                        && request.resource.data.url is string
+                        && request.resource.data.url.matches('^https?://.+')
+                      ) || (
+                        // clicks 필드만 업데이트되는 경우
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clicks'])
+                        && (
+                          // 기존에 clicks 필드가 없었으면 1로 초기화, 있었으면 1 증가
+                          (!('clicks' in resource.data) && request.resource.data.clicks == 1)
+                          || (resource.data.clicks is number && request.resource.data.clicks == resource.data.clicks + 1)
+                        )
+                      );
+                      
+        // 삭제 권한: 로그인된 본인만 허용
+        allow delete: if isOwner(userId);
       }
     }
   }
