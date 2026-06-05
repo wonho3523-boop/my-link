@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { User } from "firebase/auth";
 import { Link as LinkType } from "@/data/links";
 import { linkData } from "@/data/links";
@@ -330,10 +331,8 @@ function SortableItem({ id, link, links, onSave, onDeleteClick, onToggle }: Sort
 }
 
 export default function AdminDashboard({ user }: { user: User }) {
-  const [links, setLinks] = useState<LinkType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isUpdating, setIsUpdating] = useState(false);
-  
+  const queryClient = useQueryClient();
+
   // 탭 상태 ("links" = 링크 관리, "profile" = 프로필 설정)
   const [activeTab, setActiveTab] = useState<"links" | "profile">("links");
 
@@ -353,8 +352,6 @@ export default function AdminDashboard({ user }: { user: User }) {
   const [isCheckingDisplayName, setIsCheckingDisplayName] = useState(false);
   const [displayNameChecked, setDisplayNameChecked] = useState(false);
   const [displayNameError, setDisplayNameError] = useState("");
-
-  const [isProfileSaving, setIsProfileSaving] = useState(false);
 
   // 다이얼로그 관련 상태 선언
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -376,16 +373,16 @@ export default function AdminDashboard({ user }: { user: User }) {
     })
   );
 
-  // Firestore에서 링크 가져오는 독립 비동기 함수
-  async function fetchLinks(showLoading = true) {
-    if (showLoading) setIsLoading(true);
-    try {
+  // 1. 유저 링크 리스트 쿼리
+  const { data: fetchedLinks = [], isLoading: isLinksLoading } = useQuery<LinkType[]>({
+    queryKey: ["links", user.uid],
+    queryFn: async () => {
       const linksRef = collection(db, "users", user.uid, "links");
       const q = query(linksRef, orderBy("createdAt", "desc"));
       const querySnapshot = await getDocs(q);
       
       if (querySnapshot.empty) {
-        // Firestore에 데이터가 전혀 없다면 초기 데이터 시딩(마이그레이션) 진행
+        // Firestore에 데이터가 전혀 없다면 초기 데이터 시딩 진행
         const batch = writeBatch(db);
         const now = Date.now();
         const initialLinks = linkData.map((link, index) => ({
@@ -399,49 +396,46 @@ export default function AdminDashboard({ user }: { user: User }) {
         });
         
         await batch.commit();
-        setLinks(initialLinks);
+        return initialLinks;
       } else {
-        const fetchedLinks: LinkType[] = [];
+        const fetched: LinkType[] = [];
         querySnapshot.forEach((doc) => {
-          fetchedLinks.push(doc.data() as LinkType);
+          fetched.push(doc.data() as LinkType);
         });
-        setLinks(fetchedLinks);
+        return fetched;
       }
-    } catch (error) {
-      console.error("Firestore에서 링크 데이터를 가져오는 중 오류 발생:", error);
-    } finally {
-      if (showLoading) setIsLoading(false);
-    }
-  }
+    },
+    enabled: !!user.uid,
+  });
 
-  // 사용자 프로필 정보를 Firestore에서 가져오거나 새로 동기화
-  async function loadUserProfile() {
-    try {
+  // 로컬 UI 정렬(dnd-kit) 상태
+  const [links, setLinks] = useState<LinkType[]>([]);
+  
+  // 쿼리 데이터가 성공적으로 페치되면 로컬 상태 초기화
+  useEffect(() => {
+    if (fetchedLinks) {
+      setLinks(fetchedLinks);
+    }
+  }, [fetchedLinks]);
+
+  // 2. 유저 프로필 데이터 쿼리
+  const { data: userProfile, isLoading: isProfileLoading } = useQuery({
+    queryKey: ["profile", user.uid],
+    queryFn: async () => {
       const userRef = doc(db, "users", user.uid);
       const userSnap = await getDoc(userRef);
       
       if (userSnap.exists()) {
-        const data = userSnap.data();
-        const uname = data.username || "";
-        const dname = data.displayName || "";
-        const bioText = data.bio || "";
-        const photo = data.photoURL || "";
-
-        setProfileUsername(uname);
-        setOriginalUsername(uname);
-        setProfileDisplayName(dname);
-        setOriginalDisplayName(dname);
-        setProfileBio(bioText);
-        setProfilePhotoURL(photo);
+        return userSnap.data();
       } else {
         // 최초 가입 유저: 기본 프로필 설정 구성 및 Firestore 생성
-        const emailId = user.email ? user.email.split('@')[0] : "user";
+        const emailId = user.email ? user.email.split("@")[0] : "user";
         const initialUsername = emailId.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase() || `user_${Date.now().toString().slice(-6)}`;
         const initialDisplayName = user.displayName || emailId || "User";
         const initialPhoto = user.photoURL || "";
         const initialBio = "안녕하세요! 저의 마이링크 페이지에 오신 것을 환영합니다.";
 
-        await setDoc(userRef, {
+        const initialProfile = {
           uid: user.uid,
           displayName: initialDisplayName,
           photoURL: initialPhoto,
@@ -450,18 +444,279 @@ export default function AdminDashboard({ user }: { user: User }) {
           bio: initialBio,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
-        });
+        };
 
-        setProfileUsername(initialUsername);
-        setOriginalUsername(initialUsername);
-        setProfileDisplayName(initialDisplayName);
-        setOriginalDisplayName(initialDisplayName);
-        setProfilePhotoURL(initialPhoto);
-        setProfileBio(initialBio);
+        await setDoc(userRef, initialProfile);
+        return initialProfile;
       }
-    } catch (error) {
-      console.error("사용자 프로필 로드 실패:", error);
+    },
+    enabled: !!user.uid,
+  });
+
+  // 프로필 데이터 쿼리가 페치되면 로컬 인풋 상태 채우기
+  useEffect(() => {
+    if (userProfile) {
+      setProfileUsername(userProfile.username || "");
+      setOriginalUsername(userProfile.username || "");
+      setProfileDisplayName(userProfile.displayName || "");
+      setOriginalDisplayName(userProfile.displayName || "");
+      setProfileBio(userProfile.bio || "");
+      setProfilePhotoURL(userProfile.photoURL || "");
     }
+  }, [userProfile]);
+
+  // 3. 링크 순서 정렬 뮤테이션
+  const dragMutation = useMutation({
+    mutationFn: async (newLinks: LinkType[]) => {
+      const batch = writeBatch(db);
+      const now = Date.now();
+      newLinks.forEach((link, idx) => {
+        const docRef = doc(db, "users", user.uid, "links", link.id);
+        const calculatedCreatedAt = new Date(now - idx * 1000).toISOString();
+        batch.update(docRef, { createdAt: calculatedCreatedAt });
+      });
+      await batch.commit();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["links", user.uid] });
+    },
+    onError: (err) => {
+      console.error("Firestore 링크 정렬 업데이트 실패:", err);
+      toast("링크 정렬 순서 저장에 실패했습니다.");
+      setLinks(fetchedLinks); // 실패 시 기존 쿼리 데이터로 롤백
+    }
+  });
+
+  // 4. 새로운 링크 추가 뮤테이션
+  const createLinkMutation = useMutation({
+    mutationFn: async (newLinkData: LinkType) => {
+      await setDoc(doc(db, "users", user.uid, "links", newLinkData.id), newLinkData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["links", user.uid] });
+      setIsAddDialogOpen(false);
+      toast("링크가 정상적으로 추가되었습니다.");
+    },
+    onError: (err) => {
+      console.error("Firestore 링크 생성 실패:", err);
+      toast("링크 추가에 실패했습니다.");
+    }
+  });
+
+  // 5. 링크 수정 뮤테이션
+  const editLinkMutation = useMutation({
+    mutationFn: async ({ id, updatedData }: { id: string; updatedData: Partial<LinkType> }) => {
+      const now = new Date().toISOString();
+      const docRef = doc(db, "users", user.uid, "links", id);
+      await updateDoc(docRef, { ...updatedData, updatedAt: now });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["links", user.uid] });
+      toast("링크 정보가 수정되었습니다.");
+    },
+    onError: (err) => {
+      console.error("Firestore 링크 수정 실패:", err);
+      toast("링크 정보 수정에 실패했습니다.");
+    }
+  });
+
+  // 6. 링크 삭제 뮤테이션
+  const deleteLinkMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await deleteDoc(doc(db, "users", user.uid, "links", id));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["links", user.uid] });
+      setDeletingLink(null);
+      toast("링크가 삭제되었습니다.");
+    },
+    onError: (err) => {
+      console.error("Firestore 링크 삭제 실패:", err);
+      toast("링크 삭제에 실패했습니다.");
+    }
+  });
+
+  // 7. 링크 활성화 토글 뮤테이션
+  const toggleLinkMutation = useMutation({
+    mutationFn: async ({ id, checked }: { id: string; checked: boolean }) => {
+      const now = new Date().toISOString();
+      const docRef = doc(db, "users", user.uid, "links", id);
+      await updateDoc(docRef, { isActive: checked, updatedAt: now });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["links", user.uid] });
+    },
+    onError: (err) => {
+      console.error("Firestore 링크 활성화 토글 실패:", err);
+      toast("링크 활성화 상태 변경에 실패했습니다.");
+    }
+  });
+
+  // 8. 프로필 변경사항 저장 뮤테이션
+  const saveProfileMutation = useMutation({
+    mutationFn: async (updatedProfile: { username: string; displayName: string; bio: string; photoURL: string }) => {
+      const userRef = doc(db, "users", user.uid);
+      await updateDoc(userRef, {
+        ...updatedProfile,
+        updatedAt: new Date().toISOString()
+      });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["profile", user.uid] });
+      setOriginalUsername(variables.username);
+      setOriginalDisplayName(variables.displayName);
+      setUsernameChecked(false);
+      setDisplayNameChecked(false);
+      toast("프로필이 성공적으로 저장되었습니다.", {
+        description: "변경사항이 퍼블릭 페이지에 즉시 반영됩니다.",
+      });
+    },
+    onError: (err) => {
+      console.error("Firestore 프로필 업데이트 실패:", err);
+      toast("프로필 저장에 실패했습니다.", {
+        description: "잠시 후 다시 시도해 주세요.",
+      });
+    }
+  });
+
+  // UI 상태 변수 매핑 (이전의 수동 로딩 overlay 상태들 대체)
+  const isUpdating =
+    dragMutation.isPending ||
+    createLinkMutation.isPending ||
+    editLinkMutation.isPending ||
+    deleteLinkMutation.isPending ||
+    toggleLinkMutation.isPending;
+  const isProfileSaving = saveProfileMutation.isPending;
+  const isLoading = isLinksLoading || isProfileLoading;
+
+  async function handleDragEnd(event: any) {
+    const { active, over } = event;
+    if (active && over && active.id !== over.id) {
+      let newLinks: LinkType[] = [];
+      setLinks((items) => {
+        const oldIndex = items.findIndex(i => i.id === active.id);
+        const newIndex = items.findIndex(i => i.id === over.id);
+        newLinks = arrayMove(items, oldIndex, newIndex);
+        return newLinks;
+      });
+
+      // 뮤테이션 구동
+      dragMutation.mutate(newLinks);
+    }
+  }
+
+  // 제목 글자 수 및 필수 입력 유효성 검증 함수
+  const validateTitle = (title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      setTitleError("링크 제목을 입력해 주세요.");
+      return false;
+    }
+    if (trimmed.length < 2) {
+      setTitleError("제목은 최소 2글자 이상 입력해야 합니다.");
+      return false;
+    }
+    if (trimmed.length > 20) {
+      setTitleError("제목은 최대 20자까지만 입력 가능합니다.");
+      return false;
+    }
+    setTitleError("");
+    return true;
+  };
+
+  const handleTitleChange = (val: string) => {
+    setNewLinkTitle(val);
+    validateTitle(val);
+  };
+
+  // URL 호스트, 정밀 도메인 패턴, 중복 유효성 검증 함수
+  const validateUrl = (url: string) => {
+    const trimmed = url.trim();
+    if (!trimmed || trimmed === "https://" || trimmed === "http://") {
+      setUrlError("URL을 입력해 주세요.");
+      return false;
+    }
+    if (!/^https?:\/\//i.test(trimmed)) {
+      setUrlError("URL은 http:// 또는 https://로 시작해야 합니다.");
+      return false;
+    }
+    
+    // 정교한 도메인 검증 정규표현식
+    const urlPattern = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/i;
+    if (!urlPattern.test(trimmed)) {
+      setUrlError("올바른 URL 도메인 형식이 아닙니다.");
+      return false;
+    }
+
+    // 중복 URL 체크 (기존 등록된 URL 목록 비교)
+    const isDuplicate = links.some(
+      (link) => link.url.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (isDuplicate) {
+      setUrlError("이미 등록된 URL 주소입니다. 다른 주소를 입력해 주세요.");
+      return false;
+    }
+
+    setUrlError("");
+    return true;
+  };
+
+  const handleUrlChange = (val: string) => {
+    setNewLinkUrl(val);
+    if (val) {
+      validateUrl(val);
+    } else {
+      setUrlError("URL을 입력해 주세요.");
+    }
+  };
+
+  // 새로운 링크 다이얼로그 열기
+  const handleOpenAddDialog = () => {
+    setNewLinkTitle("");
+    setNewLinkUrl("https://");
+    setNewLinkIcon("Link");
+    setTitleError("");
+    setUrlError("");
+    setIsAddDialogOpen(true);
+  };
+
+  // 모달 폼 제출 핸들러
+  const handleCreateLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const isTitleValid = validateTitle(newLinkTitle);
+    const isUrlValid = validateUrl(newLinkUrl);
+    
+    if (!isTitleValid || !isUrlValid) return;
+
+    const newId = `link-${Date.now()}`;
+    const newLinkData: LinkType = {
+      id: newId,
+      title: newLinkTitle.trim(),
+      url: newLinkUrl.trim(),
+      icon: newLinkIcon,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    // 뮤테이션 구동
+    createLinkMutation.mutate(newLinkData);
+  };
+
+  async function handleSaveEditedLink(id: string, updatedData: Partial<LinkType>) {
+    // 뮤테이션 구동
+    editLinkMutation.mutate({ id, updatedData });
+  }
+
+  async function handleConfirmDelete() {
+    if (!deletingLink) return;
+    // 뮤테이션 구동
+    deleteLinkMutation.mutate(deletingLink.id);
+  }
+
+  async function handleToggleLink(id: string, checked: boolean) {
+    // 뮤테이션 구동
+    toggleLinkMutation.mutate({ id, checked });
   }
 
   // 사용자 고유 주소(username) 중복 검사
@@ -566,223 +821,14 @@ export default function AdminDashboard({ user }: { user: User }) {
       return;
     }
 
-    setIsProfileSaving(true);
-    try {
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, {
-        username: trimmedUsername,
-        displayName: trimmedDisplayName,
-        bio: profileBio.trim(),
-        photoURL: profilePhotoURL.trim(),
-        updatedAt: new Date().toISOString()
-      });
-
-      setOriginalUsername(trimmedUsername);
-      setOriginalDisplayName(trimmedDisplayName);
-      setUsernameChecked(false);
-      setDisplayNameChecked(false);
-
-      toast("프로필이 성공적으로 저장되었습니다.", {
-        description: "변경사항이 퍼블릭 페이지에 즉시 반영됩니다.",
-      });
-    } catch (error) {
-      console.error("프로필 업데이트 실패:", error);
-      toast("프로필 저장에 실패했습니다.", {
-        description: "잠시 후 다시 시도해 주세요.",
-      });
-    } finally {
-      setIsProfileSaving(false);
-    }
+    // 뮤테이션 구동
+    saveProfileMutation.mutate({
+      username: trimmedUsername,
+      displayName: trimmedDisplayName,
+      bio: profileBio.trim(),
+      photoURL: profilePhotoURL.trim()
+    });
   };
-
-  // 초기 로드 시 1회 데이터 fetch 및 프로필 세팅
-  useEffect(() => {
-    loadUserProfile();
-    fetchLinks(true);
-  }, [user.uid]);
-
-  async function handleDragEnd(event: any) {
-    const { active, over } = event;
-    if (active && over && active.id !== over.id) {
-      let newLinks: LinkType[] = [];
-      setLinks((items) => {
-        const oldIndex = items.findIndex(i => i.id === active.id);
-        const newIndex = items.findIndex(i => i.id === over.id);
-        newLinks = arrayMove(items, oldIndex, newIndex);
-        return newLinks;
-      });
-
-      setIsUpdating(true);
-      // Firestore 배치 작업으로 순서 일괄 업데이트 (createdAt 시간차 재분배)
-      try {
-        const batch = writeBatch(db);
-        const now = Date.now();
-        newLinks.forEach((link, idx) => {
-          const docRef = doc(db, "users", user.uid, "links", link.id);
-          // 역순 정렬("desc")이므로, index가 0일 때 가장 최신(createdAt이 가장 큼)이어야 합니다.
-          const calculatedCreatedAt = new Date(now - idx * 1000).toISOString();
-          batch.update(docRef, { createdAt: calculatedCreatedAt });
-        });
-        await batch.commit();
-        await fetchLinks(false); // 드래그 정렬 완료 후 최신 리프레시
-      } catch (err) {
-        console.error("Firestore에 링크 순서를 저장하는 중 오류 발생:", err);
-      } finally {
-        setIsUpdating(false);
-      }
-    }
-  }
-
-  // 제목 글자 수 및 필수 입력 유효성 검증 함수
-  const validateTitle = (title: string) => {
-    const trimmed = title.trim();
-    if (!trimmed) {
-      setTitleError("링크 제목을 입력해 주세요.");
-      return false;
-    }
-    if (trimmed.length < 2) {
-      setTitleError("제목은 최소 2글자 이상 입력해야 합니다.");
-      return false;
-    }
-    if (trimmed.length > 20) {
-      setTitleError("제목은 최대 20자까지만 입력 가능합니다.");
-      return false;
-    }
-    setTitleError("");
-    return true;
-  };
-
-  const handleTitleChange = (val: string) => {
-    setNewLinkTitle(val);
-    validateTitle(val);
-  };
-
-  // URL 호스트, 정밀 도메인 패턴, 중복 유효성 검증 함수
-  const validateUrl = (url: string) => {
-    const trimmed = url.trim();
-    if (!trimmed || trimmed === "https://" || trimmed === "http://") {
-      setUrlError("URL을 입력해 주세요.");
-      return false;
-    }
-    if (!/^https?:\/\//i.test(trimmed)) {
-      setUrlError("URL은 http:// 또는 https://로 시작해야 합니다.");
-      return false;
-    }
-    
-    // 정교한 도메인 검증 정규표현식
-    const urlPattern = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/i;
-    if (!urlPattern.test(trimmed)) {
-      setUrlError("올바른 URL 도메인 형식이 아닙니다.");
-      return false;
-    }
-
-    // 중복 URL 체크 (기존 등록된 URL 목록 비교)
-    const isDuplicate = links.some(
-      (link) => link.url.trim().toLowerCase() === trimmed.toLowerCase()
-    );
-    if (isDuplicate) {
-      setUrlError("이미 등록된 URL 주소입니다. 다른 주소를 입력해 주세요.");
-      return false;
-    }
-
-    setUrlError("");
-    return true;
-  };
-
-  const handleUrlChange = (val: string) => {
-    setNewLinkUrl(val);
-    if (val) {
-      validateUrl(val);
-    } else {
-      setUrlError("URL을 입력해 주세요.");
-    }
-  };
-
-  // 새로운 링크 다이얼로그 열기
-  const handleOpenAddDialog = () => {
-    setNewLinkTitle("");
-    setNewLinkUrl("https://");
-    setNewLinkIcon("Link");
-    setTitleError("");
-    setUrlError("");
-    setIsAddDialogOpen(true);
-  };
-
-  // 모달 폼 제출 핸들러 (Firestore 저장 및 로컬 상태 반영)
-  const handleCreateLink = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const isTitleValid = validateTitle(newLinkTitle);
-    const isUrlValid = validateUrl(newLinkUrl);
-    
-    if (!isTitleValid || !isUrlValid) return;
-
-    const newId = `link-${Date.now()}`;
-    const newLinkData: LinkType = {
-      id: newId,
-      title: newLinkTitle.trim(),
-      url: newLinkUrl.trim(),
-      icon: newLinkIcon,
-      isActive: true,
-      createdAt: new Date().toISOString(), // 새 링크는 가장 최근 생성 시각 부여
-    };
-
-    setIsUpdating(true);
-    try {
-      await setDoc(doc(db, "users", user.uid, "links", newId), newLinkData);
-      setIsAddDialogOpen(false);
-      await fetchLinks(false); // 새 링크 추가 후 최신 목록으로 수동 갱신
-    } catch (err) {
-      console.error("Firestore에 새 링크를 추가하는 중 오류 발생:", err);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  async function handleSaveEditedLink(id: string, updatedData: Partial<LinkType>) {
-    const now = new Date().toISOString();
-    const dataWithTimestamp = { ...updatedData, updatedAt: now };
-    setLinks(links.map(link => link.id === id ? { ...link, ...dataWithTimestamp } : link));
-    setIsUpdating(true);
-    try {
-      const docRef = doc(db, "users", user.uid, "links", id);
-      await updateDoc(docRef, dataWithTimestamp);
-    } catch (err) {
-      console.error("Firestore 링크 정보를 수정하는 중 오류 발생:", err);
-      await fetchLinks(false);
-      throw err;
-    } finally {
-      setIsUpdating(false);
-    }
-  }
-
-  async function handleConfirmDelete() {
-    if (!deletingLink) return;
-    setIsUpdating(true);
-    try {
-      await deleteDoc(doc(db, "users", user.uid, "links", deletingLink.id));
-      setDeletingLink(null);
-      await fetchLinks(false);
-    } catch (err) {
-      console.error("Firestore 링크를 삭제하는 중 오류 발생:", err);
-    } finally {
-      setIsUpdating(false);
-    }
-  }
-
-  async function handleToggleLink(id: string, checked: boolean) {
-    const now = new Date().toISOString();
-    setLinks(links.map(link => link.id === id ? { ...link, isActive: checked, updatedAt: now } : link));
-    setIsUpdating(true);
-    try {
-      const docRef = doc(db, "users", user.uid, "links", id);
-      await updateDoc(docRef, { isActive: checked, updatedAt: now });
-    } catch (err) {
-      console.error("Firestore 링크 활성화 토글 중 오류 발생:", err);
-    } finally {
-      setIsUpdating(false);
-    }
-  }
 
   // 폼 제출 버튼 활성화 상태 조건 정의
   const isFormValid =
