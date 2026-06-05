@@ -70,7 +70,7 @@ export default function Header() {
     <header className="sticky top-0 z-40 w-full border-b bg-white/80 backdrop-blur-md">
       <div className="flex h-16 items-center justify-between px-6 max-w-7xl mx-auto">
         <div className="flex items-center gap-2">
-          <Link href="/admin" className="text-xl font-black tracking-tight text-blue-600">
+          <Link href="/" className="text-xl font-black tracking-tight text-blue-600">
             MyLink
           </Link>
           <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-bold">마이페이지</span>
