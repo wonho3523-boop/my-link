@@ -79,73 +79,84 @@ export default function Header() {
           {loading ? (
             <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
           ) : user ? (
-            <div className="relative" ref={dropdownRef}>
-              {/* 프로필 트리거 버튼 */}
-              <button
-                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                className="flex items-center gap-2.5 hover:bg-slate-50 p-1.5 pr-3 rounded-2xl transition-all duration-200 border border-transparent hover:border-slate-100 text-left focus:outline-none"
+            <div className="flex items-center gap-3">
+              {/* 헤더 바깥 영역에 '내 페이지 바로가기' 버튼 추가 */}
+              <Link
+                href={`/${encodeURIComponent(profileDisplayName)}`}
+                className="hidden sm:flex items-center gap-1.5 px-4 h-9 text-xs font-bold text-slate-600 hover:text-blue-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-full transition-all duration-200 shadow-sm shrink-0"
               >
-                <Avatar className="w-9 h-9 border border-slate-100 shadow-sm shrink-0">
-                  <AvatarImage src={profilePhotoURL} alt={profileDisplayName} />
-                  <AvatarFallback>{profileDisplayName?.[0] || "U"}</AvatarFallback>
-                </Avatar>
-                <div className="hidden sm:flex flex-col">
-                  <span className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[120px]">
-                    {profileDisplayName}
-                  </span>
-                  <span className="text-[9px] text-slate-400 leading-none mt-0.5 truncate max-w-[120px]">
-                    {profileEmail}
-                  </span>
-                </div>
-                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
+                <User className="w-3.5 h-3.5 text-slate-400" />
+                <span>내 페이지 바로가기</span>
+              </Link>
 
-              {/* 드롭다운 메뉴 레이어 */}
-              {isDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl border border-slate-150 shadow-xl py-2 z-50 origin-top-right transition-all duration-200 ease-out animate-in fade-in slide-in-from-top-2">
-                  {/* 상단 프로필 헤더 (모바일 대응) */}
-                  <div className="px-4 py-2 border-b border-slate-50 flex flex-col sm:hidden">
-                    <span className="text-xs font-bold text-slate-800 truncate">{profileDisplayName}</span>
-                    <span className="text-[10px] text-slate-400 truncate mt-0.5">{profileEmail}</span>
+              <div className="relative" ref={dropdownRef}>
+                {/* 프로필 트리거 버튼 */}
+                <button
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  className="flex items-center gap-2.5 hover:bg-slate-50 p-1.5 pr-3 rounded-2xl transition-all duration-200 border border-transparent hover:border-slate-100 text-left focus:outline-none"
+                >
+                  <Avatar className="w-9 h-9 border border-slate-100 shadow-sm shrink-0">
+                    <AvatarImage src={profilePhotoURL} alt={profileDisplayName} />
+                    <AvatarFallback>{profileDisplayName?.[0] || "U"}</AvatarFallback>
+                  </Avatar>
+                  <div className="hidden sm:flex flex-col">
+                    <span className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[120px]">
+                      {profileDisplayName}
+                    </span>
+                    <span className="text-[9px] text-slate-400 leading-none mt-0.5 truncate max-w-[120px]">
+                      {profileEmail}
+                    </span>
                   </div>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-                  {/* 메뉴 항목 */}
-                  <div className="px-1.5 py-1 space-y-0.5">
-                    <Link
-                      href={`/${encodeURIComponent(profileDisplayName)}`}
-                      onClick={() => setIsDropdownOpen(false)}
-                      className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 rounded-xl transition-colors"
-                    >
-                      <span className="flex items-center gap-2">
-                        <User className="w-4 h-4 text-slate-400" />
-                        내 페이지 보기
-                      </span>
-                      <ExternalLink className="w-3.5 h-3.5 opacity-60" />
-                    </Link>
+                {/* 드롭다운 메뉴 레이어 */}
+                {isDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl border border-slate-150 shadow-xl py-2 z-50 origin-top-right transition-all duration-200 ease-out animate-in fade-in slide-in-from-top-2">
+                    {/* 상단 프로필 헤더 (모바일 대응) */}
+                    <div className="px-4 py-2 border-b border-slate-50 flex flex-col sm:hidden">
+                      <span className="text-xs font-bold text-slate-800 truncate">{profileDisplayName}</span>
+                      <span className="text-[10px] text-slate-400 truncate mt-0.5">{profileEmail}</span>
+                    </div>
 
-                    <Link
-                      href="/admin"
-                      onClick={() => setIsDropdownOpen(false)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 rounded-xl transition-colors"
-                    >
-                      <Settings className="w-4 h-4 text-slate-400" />
-                      마이페이지 설정
-                    </Link>
+                    {/* 메뉴 항목 */}
+                    <div className="px-1.5 py-1 space-y-0.5">
+                      <Link
+                        href={`/${encodeURIComponent(profileDisplayName)}`}
+                        onClick={() => setIsDropdownOpen(false)}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 rounded-xl transition-colors"
+                      >
+                        <span className="flex items-center gap-2">
+                          <User className="w-4 h-4 text-slate-400" />
+                          내 페이지 보기
+                        </span>
+                        <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+                      </Link>
+
+                      <Link
+                        href="/admin"
+                        onClick={() => setIsDropdownOpen(false)}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 rounded-xl transition-colors"
+                      >
+                        <Settings className="w-4 h-4 text-slate-400" />
+                        마이페이지 설정
+                      </Link>
+                    </div>
+
+                    <div className="border-t border-slate-100 my-1"></div>
+
+                    <div className="px-1.5">
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-colors text-left"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        로그아웃
+                      </button>
+                    </div>
                   </div>
-
-                  <div className="border-t border-slate-100 my-1"></div>
-
-                  <div className="px-1.5">
-                    <button
-                      onClick={handleLogout}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-colors text-left"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      로그아웃
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ) : (
             <Button
