@@ -2,14 +2,46 @@
 
 import { useAuth } from "@/hooks/useAuth";
 import { signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { LogOut, Loader2 } from "lucide-react";
+import { LogOut, Loader2, User, Settings, ChevronDown, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { useState, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { doc, getDoc } from "firebase/firestore";
+import Link from "next/link";
 
 export default function Header() {
   const { user, loading } = useAuth();
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Firestore에서 현재 사용자의 프로필 조회 (Query Cache 공유)
+  const { data: userProfile } = useQuery({
+    queryKey: ["profile", user?.uid],
+    queryFn: async () => {
+      if (!user?.uid) return null;
+      const userRef = doc(db, "users", user.uid);
+      const userSnap = await getDoc(userRef);
+      return userSnap.exists() ? userSnap.data() : null;
+    },
+    enabled: !!user?.uid,
+  });
+
+  const profileDisplayName = userProfile?.displayName || user?.displayName || "User";
+  const profilePhotoURL = userProfile?.photoURL || user?.photoURL || undefined;
+  const profileEmail = userProfile?.email || user?.email || "";
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
@@ -25,6 +57,7 @@ export default function Header() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      setIsDropdownOpen(false);
       toast.success("로그아웃되었습니다.");
     } catch (error) {
       console.error(error);
@@ -36,9 +69,9 @@ export default function Header() {
     <header className="sticky top-0 z-40 w-full border-b bg-white/80 backdrop-blur-md">
       <div className="flex h-16 items-center justify-between px-6 max-w-7xl mx-auto">
         <div className="flex items-center gap-2">
-          <a href="/admin" className="text-xl font-black tracking-tight text-blue-600">
+          <Link href="/admin" className="text-xl font-black tracking-tight text-blue-600">
             MyLink
-          </a>
+          </Link>
           <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-bold">마이페이지</span>
         </div>
 
@@ -46,24 +79,73 @@ export default function Header() {
           {loading ? (
             <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
           ) : user ? (
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:flex flex-col text-right">
-                <span className="text-sm font-bold text-slate-800">{user.displayName}</span>
-                <span className="text-[10px] text-slate-500 font-medium">{user.email}</span>
-              </div>
-              <Avatar className="w-9 h-9 border border-slate-100 shadow-sm">
-                <AvatarImage src={user.photoURL || undefined} alt={user.displayName || "User"} />
-                <AvatarFallback>{user.displayName?.[0] || "U"}</AvatarFallback>
-              </Avatar>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleLogout}
-                className="text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl"
-                title="로그아웃"
+            <div className="relative" ref={dropdownRef}>
+              {/* 프로필 트리거 버튼 */}
+              <button
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="flex items-center gap-2.5 hover:bg-slate-50 p-1.5 pr-3 rounded-2xl transition-all duration-200 border border-transparent hover:border-slate-100 text-left focus:outline-none"
               >
-                <LogOut className="w-4 h-4" />
-              </Button>
+                <Avatar className="w-9 h-9 border border-slate-100 shadow-sm shrink-0">
+                  <AvatarImage src={profilePhotoURL} alt={profileDisplayName} />
+                  <AvatarFallback>{profileDisplayName?.[0] || "U"}</AvatarFallback>
+                </Avatar>
+                <div className="hidden sm:flex flex-col">
+                  <span className="text-xs font-bold text-slate-800 leading-tight truncate max-w-[120px]">
+                    {profileDisplayName}
+                  </span>
+                  <span className="text-[9px] text-slate-400 leading-none mt-0.5 truncate max-w-[120px]">
+                    {profileEmail}
+                  </span>
+                </div>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* 드롭다운 메뉴 레이어 */}
+              {isDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl border border-slate-150 shadow-xl py-2 z-50 origin-top-right transition-all duration-200 ease-out animate-in fade-in slide-in-from-top-2">
+                  {/* 상단 프로필 헤더 (모바일 대응) */}
+                  <div className="px-4 py-2 border-b border-slate-50 flex flex-col sm:hidden">
+                    <span className="text-xs font-bold text-slate-800 truncate">{profileDisplayName}</span>
+                    <span className="text-[10px] text-slate-400 truncate mt-0.5">{profileEmail}</span>
+                  </div>
+
+                  {/* 메뉴 항목 */}
+                  <div className="px-1.5 py-1 space-y-0.5">
+                    <Link
+                      href={`/${encodeURIComponent(profileDisplayName)}`}
+                      onClick={() => setIsDropdownOpen(false)}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 rounded-xl transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <User className="w-4 h-4 text-slate-400" />
+                        내 페이지 보기
+                      </span>
+                      <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+                    </Link>
+
+                    <Link
+                      href="/admin"
+                      onClick={() => setIsDropdownOpen(false)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 rounded-xl transition-colors"
+                    >
+                      <Settings className="w-4 h-4 text-slate-400" />
+                      마이페이지 설정
+                    </Link>
+                  </div>
+
+                  <div className="border-t border-slate-100 my-1"></div>
+
+                  <div className="px-1.5">
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-colors text-left"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      로그아웃
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <Button
