@@ -5,7 +5,7 @@ import { signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { LogOut, Loader2, User, Settings, ChevronDown, ExternalLink } from "lucide-react";
+import { LogOut, Loader2, User, Settings, ChevronDown, ExternalLink, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -141,6 +141,15 @@ export default function Header() {
                       >
                         <Settings className="w-4 h-4 text-slate-400" />
                         마이페이지 설정
+                      </Link>
+
+                      <Link
+                        href="/stats"
+                        onClick={() => setIsDropdownOpen(false)}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 rounded-xl transition-colors"
+                      >
+                        <BarChart3 className="w-4 h-4 text-slate-400" />
+                        통계 대시보드
                       </Link>
                     </div>
 
