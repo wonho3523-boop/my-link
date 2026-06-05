@@ -15,9 +15,9 @@ export default async function UserPublicPage({ params }: PageProps) {
   let userDoc = null;
   
   try {
-    // 1. 유저 정보 및 프로필 조회 (displayName 필드로 검색)
+    // 1. 유저 정보 및 프로필 조회 (username 필드로 검색)
     const usersRef = collection(db, "users");
-    const qUser = query(usersRef, where("displayName", "==", decodedDisplayName));
+    const qUser = query(usersRef, where("username", "==", decodedDisplayName));
     const userSnapshot = await getDocs(qUser);
     
     if (!userSnapshot.empty) {
@@ -34,7 +34,7 @@ export default async function UserPublicPage({ params }: PageProps) {
 
   const userData = userDoc.data();
   const uid = userDoc.id; // 문서 ID가 유저의 uid
-  const userDisplayName = userData.displayName || decodedDisplayName;
+  const username = userData.username || decodedDisplayName;
   const avatarUrl = userData.photoURL || undefined;
   const bio = userData.bio || "";
 
@@ -63,7 +63,7 @@ export default async function UserPublicPage({ params }: PageProps) {
   
   return (
     <main className="min-h-screen bg-slate-100 flex items-center justify-center font-sans w-full">
-      <PublicProfile username={userDisplayName} avatarUrl={avatarUrl} bio={bio} links={links} />
+      <PublicProfile username={username} avatarUrl={avatarUrl} bio={bio} links={links} />
     </main>
   );
 }
