@@ -552,7 +552,7 @@ export default function AdminDashboard({ user }: { user: User }) {
     }
   });
 
-  // 8. 프로필 변경사항 저장 뮤테이션
+  // 8. 프로필 변경사항 저장 뮤테이션 (낙관적 업데이트 적용)
   const saveProfileMutation = useMutation({
     mutationFn: async (updatedProfile: { username: string; displayName: string; bio: string; photoURL: string }) => {
       const userRef = doc(db, "users", user.uid);
@@ -561,8 +561,32 @@ export default function AdminDashboard({ user }: { user: User }) {
         updatedAt: new Date().toISOString()
       });
     },
+    onMutate: async (newProfile) => {
+      // 진행 중인 프로필 리페치 요청을 취소하여 낙관적 업데이트를 보호합니다.
+      await queryClient.cancelQueries({ queryKey: ["profile", user.uid] });
+
+      // 이전 프로필 값을 캐시에서 백업합니다.
+      const previousProfile = queryClient.getQueryData(["profile", user.uid]);
+
+      // 새 값으로 낙관적 캐시 업데이트를 수행합니다.
+      queryClient.setQueryData(["profile", user.uid], (old: any) => ({
+        ...old,
+        ...newProfile,
+      }));
+
+      // 이전 값을 context로 리턴합니다.
+      return { previousProfile };
+    },
+    onError: (err, newProfile, context) => {
+      console.error("Firestore 프로필 업데이트 실패, 롤백 수행:", err);
+      if (context?.previousProfile) {
+        queryClient.setQueryData(["profile", user.uid], context.previousProfile);
+      }
+      toast("프로필 저장에 실패했습니다.", {
+        description: "원래 상태로 복구됩니다. 잠시 후 다시 시도해 주세요.",
+      });
+    },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["profile", user.uid] });
       setOriginalUsername(variables.username);
       setOriginalDisplayName(variables.displayName);
       setUsernameChecked(false);
@@ -571,11 +595,9 @@ export default function AdminDashboard({ user }: { user: User }) {
         description: "변경사항이 퍼블릭 페이지에 즉시 반영됩니다.",
       });
     },
-    onError: (err) => {
-      console.error("Firestore 프로필 업데이트 실패:", err);
-      toast("프로필 저장에 실패했습니다.", {
-        description: "잠시 후 다시 시도해 주세요.",
-      });
+    onSettled: () => {
+      // 성공/실패 여부에 상관없이 최종적으로 서버 데이터와 캐시를 매칭시킵니다.
+      queryClient.invalidateQueries({ queryKey: ["profile", user.uid] });
     }
   });
 
