@@ -1,0 +1,20 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{userId}/{allPaths=**} {
+      // 읽기 권한: 누구나 허용 (프로필 사진 공개 노출)
+      allow read: if true;
+      
+      // 쓰기 권한: 본인만 가능하며 5MB 이하의 이미지 파일만 업로드 허용
+      allow write: if request.auth != null 
+                    && request.auth.uid == userId
+                    && (
+                      request.method == 'delete' || 
+                      (
+                        request.resource.size < 5 * 1024 * 1024 &&
+                        request.resource.contentType.matches('image/.*')
+                      )
+                    );
+    }
+  }
+}
