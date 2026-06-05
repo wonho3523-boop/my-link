@@ -32,6 +32,7 @@ export default function Header() {
   const profileDisplayName = userProfile?.displayName || user?.displayName || "User";
   const profilePhotoURL = userProfile?.photoURL || user?.photoURL || undefined;
   const profileEmail = userProfile?.email || user?.email || "";
+  const profileUsername = userProfile?.username || "";
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -82,7 +83,7 @@ export default function Header() {
             <div className="flex items-center gap-3">
               {/* 헤더 바깥 영역에 '내 페이지 바로가기' 버튼 추가 */}
               <Link
-                href={`/${encodeURIComponent(profileDisplayName)}`}
+                href={profileUsername ? `/${encodeURIComponent(profileUsername)}` : "#"}
                 className="hidden sm:flex items-center gap-1.5 px-4 h-9 text-xs font-bold text-slate-600 hover:text-blue-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-full transition-all duration-200 shadow-sm shrink-0"
               >
                 <User className="w-3.5 h-3.5 text-slate-400" />
@@ -122,7 +123,7 @@ export default function Header() {
                     {/* 메뉴 항목 */}
                     <div className="px-1.5 py-1 space-y-0.5">
                       <Link
-                        href={`/${encodeURIComponent(profileDisplayName)}`}
+                        href={profileUsername ? `/${encodeURIComponent(profileUsername)}` : "#"}
                         onClick={() => setIsDropdownOpen(false)}
                         className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 rounded-xl transition-colors"
                       >
