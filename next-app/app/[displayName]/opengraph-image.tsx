@@ -1,6 +1,4 @@
 import { ImageResponse } from 'next/og';
-import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where } from "firebase/firestore";
 
 export const alt = 'MyLink Profile';
 export const size = {
@@ -10,40 +8,17 @@ export const size = {
 export const contentType = 'image/png';
 
 interface Props {
-  params: Promise<{ displayName: string }>;
+  params: { displayName: string } | Promise<{ displayName: string }>;
 }
 
 export default async function Image({ params }: Props) {
-  const { displayName: rawDisplayName } = await params;
+  // params가 Promise일 경우와 일반 객체일 경우를 안전하게 분기 처리
+  const resolvedParams = params instanceof Promise ? await params : params;
+  const rawDisplayName = resolvedParams?.displayName || 'User';
   const decodedDisplayName = decodeURIComponent(rawDisplayName);
 
-  let userData = {
-    displayName: decodedDisplayName,
-    bio: '나만의 링크 트리 페이지, MyLink에 방문해 주셔서 감사합니다! 🚀',
-    username: decodedDisplayName,
-    photoURL: '',
-  };
-
-  try {
-    const usersRef = collection(db, "users");
-    const qUser = query(usersRef, where("username", "==", decodedDisplayName));
-    const userSnapshot = await getDocs(qUser);
-    
-    if (!userSnapshot.empty) {
-      const docData = userSnapshot.docs[0].data();
-      userData = {
-        displayName: docData.displayName || decodedDisplayName,
-        bio: docData.bio || '나만의 링크 트리 페이지, MyLink에 방문해 주셔서 감사합니다! 🚀',
-        username: docData.username || decodedDisplayName,
-        photoURL: docData.photoURL || '',
-      };
-    }
-  } catch (error) {
-    console.error("OG 이미지 Firestore 유저 조회 실패:", error);
-  }
-
-  // 닉네임의 첫 글자 추출 (아바타 백업용)
-  const initial = userData.displayName ? userData.displayName.charAt(0).toUpperCase() : 'U';
+  // 닉네임의 첫 글자 추출 (아바타 데코용)
+  const initial = decodedDisplayName.charAt(0).toUpperCase();
 
   return new ImageResponse(
     (
@@ -55,14 +30,14 @@ export default async function Image({ params }: Props) {
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'space-between',
-          backgroundColor: '#0f172a', // slate-900
+          backgroundColor: '#f8fafc', // slate-50
           backgroundImage: 'radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 50%), radial-gradient(circle at bottom left, rgba(139, 92, 246, 0.12), transparent 50%)',
           padding: '60px 80px',
           fontFamily: 'sans-serif',
           position: 'relative',
         }}
       >
-        {/* 네온 라인 장식 */}
+        {/* 상단 장식 네온 라인 */}
         <div
           style={{
             position: 'absolute',
@@ -74,230 +49,234 @@ export default async function Image({ params }: Props) {
           }}
         />
 
-        {/* 좌측 영역: 사용자 프로필 명함 정보 */}
+        {/* 좌측 영역: 사용자의 개인 프로필 명함 정보 */}
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
-            height: '100%',
             maxWidth: '550px',
             gap: '24px',
             zIndex: 10,
           }}
         >
-          {/* 아바타와 닉네임 한 줄 */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '20px',
-            }}
-          >
-            {/* 프로필 이미지 (URL이 있으면 이미지 태그, 없으면 이니셜 아바타) */}
-            {userData.photoURL ? (
-              <img
-                src={userData.photoURL}
-                alt={userData.displayName}
-                style={{
-                  width: '100px',
-                  height: '100px',
-                  borderRadius: '50px',
-                  border: '3px solid #ffffff',
-                  objectFit: 'cover',
-                  boxShadow: '0 10px 20px rgba(0,0,0,0.3)',
-                }}
-              />
-            ) : (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '100px',
-                  height: '100px',
-                  borderRadius: '50px',
-                  backgroundImage: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
-                  boxShadow: '0 10px 20px rgba(0,0,0,0.3)',
-                  color: '#ffffff',
-                  fontSize: '48px',
-                  fontWeight: 900,
-                  border: '3px solid #ffffff',
-                }}
-              >
-                {initial}
-              </div>
-            )}
-
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '4px',
-              }}
-            >
-              {/* 유저 표시 이름 */}
-              <span
-                style={{
-                  fontSize: '36px',
-                  fontWeight: 900,
-                  color: '#ffffff',
-                  letterSpacing: '-0.02em',
-                }}
-              >
-                {userData.displayName}
-              </span>
-              {/* 유저 닉네임 주소 */}
-              <span
-                style={{
-                  fontSize: '18px',
-                  fontWeight: 700,
-                  color: '#3b82f6', // blue-500
-                }}
-              >
-                @{userData.username}
-              </span>
-            </div>
-          </div>
-
-          {/* 한 줄 소개글 */}
-          <span
-            style={{
-              fontSize: '20px',
-              fontWeight: 500,
-              color: '#94a3b8', // slate-400
-              lineHeight: '1.6',
-              wordBreak: 'keep-all',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              display: '-webkit-box',
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical',
-            }}
-          >
-            {userData.bio}
-          </span>
-
-          {/* 링크 경로 뱃지 */}
+          {/* 미니 개인 프로필 뱃지 */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               alignSelf: 'flex-start',
               gap: '6px',
-              backgroundColor: 'rgba(59, 130, 246, 0.08)',
-              border: '1px solid rgba(59, 130, 246, 0.15)',
+              backgroundColor: '#eff6ff', // blue-50
+              border: '1px solid #dbeafe', // blue-100
               borderRadius: '9999px',
               padding: '6px 16px',
             }}
           >
             <span
               style={{
-                color: '#60a5fa', // blue-400
+                color: '#2563eb', // blue-600
                 fontSize: '14px',
-                fontWeight: 700,
+                fontWeight: 900,
+                letterSpacing: '0.02em',
               }}
             >
-              mylink.app/{userData.username}
+              ✨ 마이링크 개인 프로필
+            </span>
+          </div>
+
+          {/* 메인 타이틀 */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+            }}
+          >
+            <span
+              style={{
+                fontSize: '56px',
+                fontWeight: 900,
+                color: '#0f172a', // slate-900
+                letterSpacing: '-0.03em',
+                lineHeight: '1.1',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: '520px',
+              }}
+            >
+              {decodedDisplayName}님의
+            </span>
+            <span
+              style={{
+                fontSize: '56px',
+                fontWeight: 900,
+                backgroundImage: 'linear-gradient(to right, #2563eb, #7c3aed, #db2777)',
+                backgroundClip: 'text',
+                color: 'transparent',
+                letterSpacing: '-0.03em',
+                lineHeight: '1.1',
+              }}
+            >
+              프로필 링크 트리
+            </span>
+          </div>
+
+          {/* 서브 카피 */}
+          <span
+            style={{
+              fontSize: '20px',
+              fontWeight: 600,
+              color: '#64748b', // slate-500
+              lineHeight: '1.6',
+              wordBreak: 'keep-all',
+            }}
+          >
+            인스타그램, 유튜브, 블로그와 포트폴리오를 한곳에 예쁘게 모아놓은 프로필 페이지입니다.
+          </span>
+
+          {/* 하단 단축 경로 주소 뱃지 */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              alignSelf: 'flex-start',
+              gap: '6px',
+              backgroundColor: 'rgba(37, 99, 235, 0.08)',
+              border: '1px solid rgba(37, 99, 235, 0.15)',
+              borderRadius: '9999px',
+              padding: '6px 18px',
+              marginTop: '8px',
+            }}
+          >
+            <span
+              style={{
+                color: '#2563eb', // blue-600
+                fontSize: '15px',
+                fontWeight: 800,
+              }}
+            >
+              mylink.app/{decodedDisplayName}
             </span>
           </div>
         </div>
 
-        {/* 우측 영역: 데코레이션 가상 카드 그래픽 */}
+        {/* 우측 영역: 랜딩페이지 히어로의 폰 목업을 구현한 플랫 비주얼 */}
         <div
           style={{
             display: 'flex',
-            flexDirection: 'column',
             justifyContent: 'center',
             alignItems: 'center',
-            width: '400px',
-            height: '100%',
+            width: '450px',
+            height: '105%',
             position: 'relative',
             zIndex: 10,
           }}
         >
-          {/* 가상 링크 카드 1 */}
+          {/* 가상 스마트폰 디바이스 프레임 */}
           <div
             style={{
-              width: '320px',
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '20px',
-              padding: '16px 20px',
+              width: '260px',
+              height: '490px',
+              backgroundColor: '#0f172a', // slate-900
+              borderRadius: '40px',
+              padding: '10px',
+              boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.3)',
+              border: '4px solid #1e293b', // slate-800
               display: 'flex',
-              alignItems: 'center',
-              gap: '16px',
-              transform: 'rotate(-4deg) translateY(-20px)',
-              boxShadow: '0 15px 30px rgba(0,0,0,0.25)',
-              zIndex: 3,
+              flexDirection: 'column',
+              position: 'relative',
             }}
           >
-            <div style={{ width: '32px', height: '32px', borderRadius: '10px', backgroundColor: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: '16px' }}>🔗</span>
-            </div>
-            <span style={{ fontSize: '14px', fontWeight: 800, color: '#e2e8f0' }}>포트폴리오 바로가기</span>
-          </div>
+            {/* 스크린 화면 */}
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                backgroundColor: '#f1f5f9', // slate-100
+                borderRadius: '30px',
+                padding: '24px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '16px',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+            >
+              {/* 스크린 내부 탑 그라데이션 볼 */}
+              <div style={{ position: 'absolute', top: '-40px', left: '-40px', width: '100px', height: '100px', borderRadius: '50px', backgroundColor: 'rgba(59, 130, 246, 0.15)', filter: 'blur(10px)' }} />
 
-          {/* 가상 링크 카드 2 */}
-          <div
-            style={{
-              width: '320px',
-              backgroundColor: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
-              borderRadius: '20px',
-              padding: '16px 20px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '16px',
-              transform: 'rotate(2deg) translateY(0px) translateX(15px)',
-              boxShadow: '0 15px 30px rgba(0,0,0,0.2)',
-              zIndex: 2,
-            }}
-          >
-            <div style={{ width: '32px', height: '32px', borderRadius: '10px', backgroundColor: 'rgba(236, 72, 153, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: '16px' }}>📸</span>
-            </div>
-            <span style={{ fontSize: '14px', fontWeight: 800, color: '#cbd5e1' }}>인스타그램 SNS</span>
-          </div>
+              {/* 프로필 아바타 데코 */}
+              <div
+                style={{
+                  width: '60px',
+                  height: '60px',
+                  borderRadius: '30px',
+                  backgroundImage: 'linear-gradient(135deg, #2563eb, #7c3aed)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ffffff',
+                  fontSize: '24px',
+                  fontWeight: 900,
+                  border: '2px solid #ffffff',
+                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                  zIndex: 2,
+                }}
+              >
+                {initial}
+              </div>
 
-          {/* 가상 링크 카드 3 */}
-          <div
-            style={{
-              width: '320px',
-              backgroundColor: 'rgba(255, 255, 255, 0.02)',
-              border: '1px solid rgba(255, 255, 255, 0.04)',
-              borderRadius: '20px',
-              padding: '16px 20px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '16px',
-              transform: 'rotate(-2deg) translateY(20px) translateX(-10px)',
-              boxShadow: '0 15px 30px rgba(0,0,0,0.15)',
-              zIndex: 1,
-            }}
-          >
-            <div style={{ width: '32px', height: '32px', borderRadius: '10px', backgroundColor: 'rgba(139, 92, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: '16px' }}>✉️</span>
+              {/* 사용자 정보 닉네임 */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', zIndex: 2 }}>
+                <span style={{ fontSize: '14px', fontWeight: 900, color: '#0f172a' }}>{decodedDisplayName}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#64748b' }}>@{decodedDisplayName}</span>
+              </div>
+
+              {/* 링크 카드 스택 데코 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', zIndex: 2 }}>
+                {/* 카드 1 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#ffffff', border: '1px solid #e2e8f0', padding: '10px 12px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                  <span style={{ fontSize: '12px' }}>🔗</span>
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#334155' }}>포트폴리오 구경하기</span>
+                </div>
+                {/* 카드 2 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#ffffff', border: '1px solid #e2e8f0', padding: '10px 12px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                  <span style={{ fontSize: '12px' }}>📸</span>
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#334155' }}>인스타그램 SNS</span>
+                </div>
+                {/* 카드 3 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#ffffff', border: '1px solid #e2e8f0', padding: '10px 12px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                  <span style={{ fontSize: '12px' }}>✉️</span>
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#334155' }}>실시간 문의하기</span>
+                </div>
+              </div>
+
+              {/* 하단 브랜드 */}
+              <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ fontSize: '8px', fontWeight: 900, color: '#94a3b8' }}>Powered by MyLink</span>
+              </div>
             </div>
-            <span style={{ fontSize: '14px', fontWeight: 800, color: '#94a3b8' }}>문의하기 / 연락처</span>
           </div>
         </div>
 
-        {/* 하단 구석 워터마크 */}
+        {/* 하단 구석 브랜드 */}
         <div
           style={{
             position: 'absolute',
             bottom: '40px',
-            right: '80px',
+            left: '80px',
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
-            color: '#475569', // slate-600
-            fontSize: '14px',
-            fontWeight: 750,
+            color: '#94a3b8', // slate-400
+            fontSize: '15px',
+            fontWeight: 800,
           }}
         >
-          <span style={{ color: '#3b82f6', fontWeight: 900 }}>MyLink</span>
+          <span style={{ color: '#2563eb', fontWeight: 900 }}>MyLink</span>
           <span>프로필 서비스</span>
         </div>
       </div>
