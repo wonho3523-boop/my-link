@@ -11,11 +11,13 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
+import { useInAppBrowser } from "@/hooks/useInAppBrowser";
 
 export default function Header() {
   const { user, loading } = useAuth();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const isInApp = useInAppBrowser();
 
   // Firestore에서 현재 사용자의 프로필 조회 (Query Cache 공유)
   const { data: userProfile } = useQuery({
@@ -45,6 +47,10 @@ export default function Header() {
   }, []);
 
   const handleLogin = async () => {
+    if (isInApp) {
+      toast.error("앱 내부 브라우저에서는 구글 로그인을 이용하실 수 없습니다. 우측 하단 메뉴에서 [다른 브라우저로 열기]를 선택해 주세요.");
+      return;
+    }
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
@@ -171,7 +177,10 @@ export default function Header() {
           ) : (
             <Button
               onClick={handleLogin}
-              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-full px-4 h-9 text-xs font-bold flex items-center gap-2 shadow-sm transition-all duration-200"
+              disabled={isInApp}
+              className={`bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-full px-4 h-9 text-xs font-bold flex items-center gap-2 shadow-sm transition-all duration-200 ${
+                isInApp ? "opacity-50 cursor-not-allowed" : ""
+              }`}
             >
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                 <path

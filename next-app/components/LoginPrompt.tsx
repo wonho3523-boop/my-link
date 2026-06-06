@@ -5,9 +5,16 @@ import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { toast } from "sonner";
 import { Link2, ShieldAlert } from "lucide-react";
+import { useInAppBrowser } from "@/hooks/useInAppBrowser";
 
 export default function LoginPrompt() {
+  const isInApp = useInAppBrowser();
+
   const handleLogin = async () => {
+    if (isInApp) {
+      toast.error("앱 내부 브라우저에서는 구글 로그인을 이용하실 수 없습니다. 우측 하단 메뉴에서 [다른 브라우저로 열기]를 선택해 주세요.");
+      return;
+    }
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
@@ -47,9 +54,27 @@ export default function LoginPrompt() {
           </div>
         </div>
 
+        {isInApp && (
+          <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded-2xl flex flex-col gap-1 text-left leading-relaxed">
+            <div className="font-bold flex items-center gap-1.5 text-amber-900">
+              <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+              구글 로그인 차단 안내
+            </div>
+            <p>
+              카카오톡, 인스타그램 등 **앱 내부 브라우저**에서는 구글 보안 정책으로 인해 로그인이 불가능합니다.
+            </p>
+            <p className="font-bold text-amber-950">
+              화면 우측 하단의 [메뉴(...) 버튼]을 누르고 **[다른 브라우저로 열기]**를 선택하여 다시 시도해 주세요.
+            </p>
+          </div>
+        )}
+
         <Button
           onClick={handleLogin}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold h-12 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-blue-200 hover:scale-[1.02] active:scale-95 transition-all duration-200"
+          disabled={isInApp}
+          className={`w-full bg-blue-600 hover:bg-blue-700 text-white font-bold h-12 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-blue-200 hover:scale-[1.02] active:scale-95 transition-all duration-200 ${
+            isInApp ? "opacity-50 cursor-not-allowed hover:scale-100" : ""
+          }`}
         >
           <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
             <path

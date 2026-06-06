@@ -9,10 +9,12 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect } from "react";
+import { useInAppBrowser } from "@/hooks/useInAppBrowser";
 
 export default function LoginPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const isInApp = useInAppBrowser();
 
   // 이미 로그인된 사용자는 마이페이지(admin)로 자동 이동
   useEffect(() => {
@@ -22,6 +24,10 @@ export default function LoginPage() {
   }, [user, router]);
 
   const handleGoogleLogin = async () => {
+    if (isInApp) {
+      toast.error("앱 내부 브라우저에서는 구글 로그인을 이용하실 수 없습니다. 다른 브라우저로 접속해 주세요.");
+      return;
+    }
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
@@ -59,10 +65,30 @@ export default function LoginPage() {
             <div className="flex-grow border-t border-slate-200"></div>
           </div>
 
+          {isInApp && (
+            <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded-xl flex flex-col gap-1 leading-relaxed">
+              <div className="font-bold flex items-center gap-1 text-amber-900">
+                <svg className="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                구글 로그인 제한 안내
+              </div>
+              <p>
+                카카오톡, 인스타그램 등 **앱 내부 브라우저**에서는 구글 보안 정책으로 인해 로그인이 제한됩니다.
+              </p>
+              <p className="font-semibold text-amber-950">
+                화면 우측 하단의 [메뉴(...) 버튼]을 누르고 **[다른 브라우저로 열기]**를 선택하여 다시 시도해 주세요.
+              </p>
+            </div>
+          )}
+
           <Button
             onClick={handleGoogleLogin}
+            disabled={isInApp}
             type="button"
-            className="w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl h-10 text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all duration-200"
+            className={`w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl h-10 text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all duration-200 ${
+              isInApp ? "opacity-50 cursor-not-allowed" : ""
+            }`}
           >
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
               <path
