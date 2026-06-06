@@ -1,4 +1,5 @@
 import { Geist, Geist_Mono, Inter } from "next/font/google"
+import type { Metadata } from "next"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -12,6 +13,16 @@ const fontMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
 })
+
+export const metadata: Metadata = {
+  title: "MyLink",
+  description: "한 페이지에 모아 공유하는 나만의 프로필 허브",
+  openGraph: {
+    title: "MyLink",
+    description: "한 페이지에 모아 공유하는 나만의 프로필 허브",
+    type: "website",
+  },
+}
 
 export default function RootLayout({
   children,

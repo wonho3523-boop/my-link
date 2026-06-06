@@ -3,10 +3,51 @@ import PublicProfile from "@/components/PublicProfile";
 import { Link as LinkType } from "@/data/links";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, orderBy, where } from "firebase/firestore";
+import { Metadata } from "next";
 
 interface PageProps {
   params: Promise<{ displayName: string }>;
 }
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { displayName: rawDisplayName } = await params;
+  const decodedDisplayName = decodeURIComponent(rawDisplayName);
+  
+  let userDoc = null;
+  
+  try {
+    const usersRef = collection(db, "users");
+    const qUser = query(usersRef, where("username", "==", decodedDisplayName));
+    const userSnapshot = await getDocs(qUser);
+    
+    if (!userSnapshot.empty) {
+      userDoc = userSnapshot.docs[0];
+    }
+  } catch (error) {
+    console.error("서버 사이드 metadata 조회 실패:", error);
+  }
+
+  if (!userDoc) {
+    return {
+      title: "MyLink - 페이지를 찾을 수 없음",
+    };
+  }
+
+  const userData = userDoc.data();
+  const username = userData.username || decodedDisplayName;
+  const bio = userData.bio || "한 페이지에 모아 공유하는 나만의 프로필 허브";
+
+  return {
+    title: `${username} (@${username}) - MyLink`,
+    description: bio,
+    openGraph: {
+      title: `${username} (@${username}) - MyLink`,
+      description: bio,
+      type: "profile",
+    },
+  };
+}
+
 
 export default async function UserPublicPage({ params }: PageProps) {
   const { displayName: rawDisplayName } = await params;
